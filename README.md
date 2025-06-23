@@ -1,6 +1,6 @@
 # Delegate Framework
 
-A TypeScript framework for building robust, production-ready blockchain workflows with comprehensive error handling, logging, and testing. Maintained by delegate.fun
+A TypeScript framework for building robust, production-ready blockchain workflows with comprehensive error handling, logging, and testing. Maintained by [delegate.fun](https://delegate.fun).
 
 ## Features
 
