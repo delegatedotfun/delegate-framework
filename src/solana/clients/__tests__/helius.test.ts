@@ -1,5 +1,6 @@
 import { HeliusClient } from '../helius';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, Transaction } from '@solana/web3.js';
+import bs58 from 'bs58';
 
 // Mock fetch globally
 global.fetch = jest.fn();
@@ -324,6 +325,212 @@ describe('HeliusClient', () => {
     });
   });
 
+  describe('simulateTransaction', () => {
+    it('should successfully simulate transaction', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          err: null,
+          logs: ['Program 11111111111111111111111111111111 invoke [1]'],
+          accounts: [
+            {
+              lamports: 1000000,
+              owner: '11111111111111111111111111111111',
+              executable: false,
+              rentEpoch: 361,
+            },
+          ],
+          unitsConsumed: 200000,
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const transaction = new Transaction();
+      transaction.recentBlockhash = '11111111111111111111111111111111';
+      transaction.feePayer = new PublicKey('11111111111111111111111111111111');
+      transaction.add({
+        keys: [{ pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: true, isWritable: true }],
+        programId: new PublicKey('11111111111111111111111111111111'),
+        data: Buffer.from([]),
+      });
+
+      const simulation = await client.simulateTransaction(transaction);
+
+      expect(simulation).toEqual(mockResponse.result);
+      const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+      expect(typeof callBody.params[0]).toBe('string');
+      expect(callBody.params[0].length).toBeGreaterThan(0);
+    });
+
+    it('should handle simulation errors', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          err: { InstructionError: [0, { Custom: 1 }] },
+          logs: ['Program 11111111111111111111111111111111 invoke [1]'],
+          accounts: [],
+          unitsConsumed: 0,
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const transaction = new Transaction();
+      transaction.recentBlockhash = '11111111111111111111111111111111';
+      transaction.feePayer = new PublicKey('11111111111111111111111111111111');
+      transaction.add({
+        keys: [{ pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: true, isWritable: true }],
+        programId: new PublicKey('11111111111111111111111111111111'),
+        data: Buffer.from([]),
+      });
+
+      const simulation = await client.simulateTransaction(transaction);
+
+      expect(simulation).toEqual(mockResponse.result);
+      expect(simulation.err).toBeDefined();
+    });
+
+    it('should handle API errors during simulation', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const transaction = new Transaction();
+      transaction.recentBlockhash = '11111111111111111111111111111111';
+      transaction.feePayer = new PublicKey('11111111111111111111111111111111');
+      transaction.add({
+        keys: [{ pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: true, isWritable: true }],
+        programId: new PublicKey('11111111111111111111111111111111'),
+        data: Buffer.from([]),
+      });
+
+      await expect(client.simulateTransaction(transaction)).rejects.toThrow('Helius API Error (simulateTransaction)');
+    });
+
+    it('should handle network errors during simulation', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const transaction = new Transaction();
+      transaction.recentBlockhash = '11111111111111111111111111111111';
+      transaction.feePayer = new PublicKey('11111111111111111111111111111111');
+      transaction.add({
+        keys: [{ pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: true, isWritable: true }],
+        programId: new PublicKey('11111111111111111111111111111111'),
+        data: Buffer.from([]),
+      });
+
+      await expect(client.simulateTransaction(transaction)).rejects.toThrow('Helius API Request Failed (simulateTransaction)');
+    });
+
+    it('should retry on simulation failure', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          err: null,
+          logs: ['Program 11111111111111111111111111111111 invoke [1]'],
+          accounts: [],
+          unitsConsumed: 200000,
+        },
+      };
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const transaction = new Transaction();
+      transaction.recentBlockhash = '11111111111111111111111111111111';
+      transaction.feePayer = new PublicKey('11111111111111111111111111111111');
+      transaction.add({
+        keys: [{ pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: true, isWritable: true }],
+        programId: new PublicKey('11111111111111111111111111111111'),
+        data: Buffer.from([]),
+      });
+
+      const simulation = await client.simulateTransaction(transaction);
+
+      expect(simulation).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle empty transaction', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          err: null,
+          logs: [],
+          accounts: [],
+          unitsConsumed: 0,
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const transaction = new Transaction();
+      transaction.recentBlockhash = '11111111111111111111111111111111';
+      transaction.feePayer = new PublicKey('11111111111111111111111111111111');
+      const simulation = await client.simulateTransaction(transaction);
+
+      expect(simulation).toEqual(mockResponse.result);
+      const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+      expect(typeof callBody.params[0]).toBe('string');
+      expect(callBody.params[0].length).toBeGreaterThan(0);
+    });
+
+    it('should properly serialize transaction to base58', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: { err: null, logs: [], accounts: [], unitsConsumed: 0 },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const transaction = new Transaction();
+      transaction.recentBlockhash = '11111111111111111111111111111111';
+      transaction.feePayer = new PublicKey('11111111111111111111111111111111');
+      transaction.add({
+        keys: [{ pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: true, isWritable: true }],
+        programId: new PublicKey('11111111111111111111111111111111'),
+        data: Buffer.from([1, 2, 3, 4]),
+      });
+
+      await client.simulateTransaction(transaction);
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+      const decoded = Buffer.from(bs58.decode(callBody.params[0]));
+      const expected = transaction.serialize({ requireAllSignatures: false });
+      expect(decoded.equals(expected)).toBe(true);
+    });
+  });
+
   describe('logging', () => {
     it('should log requests and responses when logger is provided', async () => {
       const mockResponse = {
@@ -345,7 +552,7 @@ describe('HeliusClient', () => {
     });
 
     it('should log errors when logger is provided', async () => {
-      (fetch as jest.MockedFunction<typeof fetch>).mockRejectedValueOnce(new Error('Network error'));
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
       const publicKey = new PublicKey('11111111111111111111111111111111');
 

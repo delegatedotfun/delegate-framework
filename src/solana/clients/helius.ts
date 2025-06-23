@@ -128,6 +128,17 @@ export class HeliusClient {
     }
 
     /**
+     * Simulate a transaction
+     * @param transaction - The transaction to simulate
+     * @returns Simulation result
+     */
+    public async simulateTransaction(transaction: Transaction): Promise<any> {
+        return this.makeRequest('simulateTransaction', [
+            bs58.encode(transaction.serialize({ requireAllSignatures: false })),
+        ]);
+    }
+
+    /**
      * Wait for confirmation of a transaction
      * @param signature - Transaction signature
      * @param commitment - Optional commitment level
