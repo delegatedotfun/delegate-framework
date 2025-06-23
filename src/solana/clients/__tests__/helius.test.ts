@@ -205,36 +205,6 @@ describe('HeliusClient', () => {
     });
   });
 
-  describe('getRecentBlockhash', () => {
-    it('should successfully get recent blockhash', async () => {
-      const mockResponse = {
-        jsonrpc: '2.0',
-        id: 1,
-        result: { blockhash: 'test-blockhash', feeCalculator: { lamportsPerSignature: 5000 } },
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      } as Response);
-
-      const blockhash = await client.getRecentBlockhash('finalized');
-
-      expect(blockhash).toEqual(mockResponse.result);
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'getRecentBlockhash',
-            params: [{ commitment: 'finalized' }],
-          }),
-        })
-      );
-    });
-  });
-
   describe('getSlot', () => {
     it('should successfully get slot', async () => {
       const mockResponse = {

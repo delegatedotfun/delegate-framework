@@ -1,6 +1,6 @@
 import { Connection } from "@solana/web3.js";
 import { throwError } from "../../utils/error-handling";
-import { SplConfig, Logger } from "../types";
+import { SplConfig, Logger, GetPriorityFeeOptions } from "../types";
 
 export class SplClient {
     private static readonly DEFAULT_TIMEOUT = 30000;
@@ -8,7 +8,7 @@ export class SplClient {
     private static readonly DEFAULT_PERCENTILE = 0.9999999; // 99.99999th percentile
     private static readonly DEFAULT_CU_PRICE = 0.1;
     
-    private readonly config: Omit<Required<SplConfig>, 'logger' | 'connection' | 'programId'> & { 
+    private readonly config: Omit<Required<SplConfig>, 'logger' | 'connection' | 'programId' | 'percentile' | 'defaultCuPrice'> & { 
         connection: Connection; 
         logger?: Logger; 
     };
@@ -20,8 +20,6 @@ export class SplClient {
         this.config = {
             timeout: SplClient.DEFAULT_TIMEOUT,
             retries: SplClient.DEFAULT_RETRIES,
-            percentile: SplClient.DEFAULT_PERCENTILE,
-            defaultCuPrice: SplClient.DEFAULT_CU_PRICE,
             ...config,
         };
         this.connection = this.config.connection;
@@ -30,29 +28,37 @@ export class SplClient {
 
     /**
      * Get priority fee based on recent network activity
+     * @param options - Optional configuration for fee calculation
+     * @param options.percentile - Percentile to use for fee calculation (0-1, default: 0.9999999)
+     * @param options.defaultCuPrice - Default fee when no data is available (default: 0.1)
      * @returns Priority fee in microLamports per compute unit
      */
-    public async getPriorityFee(): Promise<number> {
+    public async getPriorityFee(options: GetPriorityFeeOptions = {}): Promise<number> {
+        const {
+            percentile = SplClient.DEFAULT_PERCENTILE,
+            defaultCuPrice = SplClient.DEFAULT_CU_PRICE,
+        } = options;
+
         return this.makeRequest(async () => {
             const recentFees = await this.connection.getRecentPrioritizationFees();
             
             if (recentFees.length === 0) {
                 this.logger?.warn('No recent prioritization fees found, using default');
-                return this.config.defaultCuPrice;
+                return defaultCuPrice;
             }
 
             const sortedFees = recentFees
                 .map((f) => f.prioritizationFee)
                 .sort((a, b) => b - a);
 
-            const topPercentileIndex = Math.floor(sortedFees.length * (1 - this.config.percentile));
-            const calculatedFee = sortedFees[topPercentileIndex] || this.config.defaultCuPrice;
+            const topPercentileIndex = Math.floor(sortedFees.length * (1 - percentile));
+            const calculatedFee = sortedFees[topPercentileIndex] || defaultCuPrice;
             
-            const finalFee = Math.max(calculatedFee, this.config.defaultCuPrice);
+            const finalFee = Math.max(calculatedFee, defaultCuPrice);
             
             this.logger?.debug('Priority fee calculation', {
                 recentFeesCount: recentFees.length,
-                percentile: this.config.percentile,
+                percentile,
                 calculatedFee,
                 finalFee,
             });
@@ -117,7 +123,7 @@ export class SplClient {
      * Get the current configuration
      * @returns Current client configuration
      */
-    public getConfig(): Readonly<Omit<Required<SplConfig>, 'logger' | 'connection' | 'programId'> & { 
+    public getConfig(): Readonly<Omit<Required<SplConfig>, 'logger' | 'connection' | 'programId' | 'percentile' | 'defaultCuPrice'> & { 
         connection: Connection; 
         logger?: Logger; 
     }> {

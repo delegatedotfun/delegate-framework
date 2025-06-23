@@ -81,23 +81,41 @@ export class HeliusClient {
     }
 
     /**
-     * Get recent blockhash
-     * @param commitment - Optional commitment level
-     * @returns Recent blockhash information
-     */
-    public async getRecentBlockhash(
-        commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'
-    ): Promise<any> {
-        return this.makeRequest('getRecentBlockhash', [{ commitment }]);
-    }
-
-    /**
      * Get slot information
      * @param commitment - Optional commitment level
      * @returns Current slot
      */
     public async getSlot(commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'): Promise<number> {
         return this.makeRequest('getSlot', [{ commitment }]);
+    }
+
+    /**
+     * Get token account
+     * @param publicKey - The public key to get token account from
+     * @param mint - contract address of the token
+     * @returns Token account
+     */
+    public async getTokenAccount(publicKey: PublicKey, mint: PublicKey): Promise<any> {
+        return this.makeRequest('getTokenAccount', [publicKey.toString(), mint.toString()]);
+    }
+
+    /**
+     * Get token accounts by owner
+     * @param publicKey - The public key to get token accounts from
+     * @param mint - contract address of the token
+     * @returns Token accounts
+     */
+    public async getTokenAccountsByOwner(publicKey: PublicKey, mint: PublicKey): Promise<any> {
+        return this.makeRequest('getTokenAccountsByOwner', [publicKey.toString(), { mint }]);
+    }
+
+    /**
+     * Get token account balance
+     * @param publicKey - The token account public key to get balance for
+     * @returns Token account balance
+     */
+    public async getTokenAccountBalance(publicKey: PublicKey): Promise<any> {
+        return this.makeRequest('getTokenAccountBalance', [publicKey.toString()]);
     }
 
     /**
