@@ -1,0 +1,237 @@
+import { Transaction, PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
+import { throwError } from "../../utils/error-handling";
+import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions } from "../types";
+
+export class HeliusClient {
+    private static readonly DEFAULT_TIMEOUT = 30000;
+    private static readonly DEFAULT_RETRIES = 3;
+    private static readonly DEFAULT_RPC_URL = "https://mainnet.helius-rpc.com";
+    
+    private readonly config: Omit<Required<HeliusConfig>, 'logger'> & { logger?: Logger };
+    private readonly logger?: Logger;
+    private requestId = 0;
+
+    constructor(config: HeliusConfig) {
+        this.config = {
+            rpcUrl: HeliusClient.DEFAULT_RPC_URL,
+            timeout: HeliusClient.DEFAULT_TIMEOUT,
+            retries: HeliusClient.DEFAULT_RETRIES,
+            ...config,
+        };
+        this.logger = this.config.logger;
+    }
+
+    /**
+     * Send a transaction to the Solana network
+     * @param transaction - The transaction to send
+     * @param options - Optional configuration for the transaction
+     * @returns Transaction signature
+     */
+    public async sendTransaction(
+        transaction: Transaction, 
+        options: SendTransactionOptions = {}
+    ): Promise<string> {
+        return this.makeRequest('sendTransaction', [
+            bs58.encode(transaction.serialize()),
+            {
+                encoding: options.encoding || 'base58',
+                skipPreflight: options.skipPreflight ?? false,
+                preflightCommitment: options.preflightCommitment || 'confirmed',
+            }
+        ]);
+    }
+
+    /**
+     * Get the balance of a public key
+     * @param publicKey - The public key to check balance for
+     * @returns Balance in lamports
+     */
+    public async getBalance(publicKey: PublicKey): Promise<number> {
+        return this.makeRequest('getBalance', [publicKey.toString()]);
+    }
+
+    /**
+     * Get account information
+     * @param publicKey - The public key to get account info for
+     * @param encoding - Optional encoding (default: 'base64')
+     * @returns Account information
+     */
+    public async getAccountInfo(publicKey: PublicKey, encoding: 'base64' | 'base58' = 'base64'): Promise<any> {
+        return this.makeRequest('getAccountInfo', [
+            publicKey.toString(),
+            { encoding }
+        ]);
+    }
+
+    /**
+     * Get transaction details
+     * @param signature - Transaction signature
+     * @param commitment - Optional commitment level
+     * @returns Transaction details
+     */
+    public async getTransaction(
+        signature: string, 
+        commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'
+    ): Promise<any> {
+        return this.makeRequest('getTransaction', [
+            signature,
+            { commitment }
+        ]);
+    }
+
+    /**
+     * Get recent blockhash
+     * @param commitment - Optional commitment level
+     * @returns Recent blockhash information
+     */
+    public async getRecentBlockhash(
+        commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'
+    ): Promise<any> {
+        return this.makeRequest('getRecentBlockhash', [{ commitment }]);
+    }
+
+    /**
+     * Get slot information
+     * @param commitment - Optional commitment level
+     * @returns Current slot
+     */
+    public async getSlot(commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'): Promise<number> {
+        return this.makeRequest('getSlot', [{ commitment }]);
+    }
+
+    /**
+     * Get cluster nodes
+     * @returns Information about cluster nodes
+     */
+    public async getClusterNodes(): Promise<any[]> {
+        return this.makeRequest('getClusterNodes', []);
+    }
+
+    /**
+     * Get version information
+     * @returns Solana version information
+     */
+    public async getVersion(): Promise<any> {
+        return this.makeRequest('getVersion', []);
+    }
+
+    /**
+     * Get latest blockhash
+     * @returns Latest blockhash information
+     */
+    public async getLatestBlockhash(options: GetLatestBlockhashOptions = {}): Promise<any> {
+        return this.makeRequest('getLatestBlockhash', [{
+            commitment: options.commitment || 'processed',
+            minContextSlot: options.minContextSlot || 1000,
+        }]);
+    }
+
+    /**
+     * Wait for confirmation of a transaction
+     * @param signature - Transaction signature
+     * @param commitment - Optional commitment level
+     * @returns Transaction confirmation information
+     */
+    public async waitForConfirmation(signature: string, commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'): Promise<any> {
+        return this.makeRequest('waitForConfirmation', [
+            signature,
+            { commitment }
+        ]);
+    }
+
+    /**
+     * Make a raw RPC request
+     * @param method - RPC method name
+     * @param params - RPC parameters
+     * @returns RPC response result
+     */
+    private async makeRequest(method: string, params: any[]): Promise<any> {
+        const requestId = ++this.requestId;
+        const requestBody: RpcRequest = {
+            jsonrpc: '2.0',
+            id: requestId,
+            method,
+            params,
+        };
+
+        this.logger?.debug(`Request ${requestId}:`, requestBody);
+
+        let lastError: Error | undefined;
+
+        for (let attempt = 1; attempt <= this.config.retries; attempt++) {
+            try {
+                let response: Response | undefined;
+                try {
+                    response = await Promise.race([
+                        fetch(`${this.config.rpcUrl}?api-key=${this.config.apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(requestBody),
+                            signal: AbortSignal.timeout(this.config.timeout),
+                        }),
+                        new Promise<never>((_, reject) =>
+                            setTimeout(() => reject(new Error(`Operation timed out after ${this.config.timeout}ms`)), this.config.timeout)
+                        ),
+                    ]);
+                } catch (error) {
+                    // Network error or timeout
+                    throwError(error, `Helius API Request Failed (${method})`);
+                }
+
+                if (!response || !('ok' in response)) {
+                    throwError('No response received from fetch', `Helius API Request Failed (${method})`);
+                }
+
+                if (!response.ok) {
+                    throwError(`HTTP ${response.status}: ${response.statusText}`, 'Network Error');
+                }
+
+                const data: RpcResponse = await response.json();
+                this.logger?.debug(`Response ${requestId}:`, data);
+
+                if (data.error) {
+                    throwError(data.error, `Helius API Error (${method})`);
+                }
+
+                return data.result;
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                this.logger?.warn(`Request ${requestId} attempt ${attempt} failed:`, lastError);
+
+                // Only retry on network errors or timeouts
+                const isTimeout = /timed out/i.test(lastError.message);
+                const isNetwork = /network|fetch|Failed to fetch|TypeError|No response received/i.test(lastError.message);
+                if (!isTimeout && !isNetwork) {
+                    this.logger?.error(`Request ${requestId} failed after ${attempt} attempts:`, lastError);
+                    throw lastError;
+                }
+
+                if (attempt === this.config.retries) {
+                    this.logger?.error(`Request ${requestId} failed after ${attempt} attempts:`, lastError);
+                    throwError(lastError, `Helius API Request Failed (${method})`);
+                }
+
+                await this.delay(Math.pow(2, attempt - 1) * 1000);
+            }
+        }
+
+        throw lastError!;
+    }
+
+    /**
+     * Utility method for delays
+     * @param ms - Milliseconds to delay
+     */
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Get the current configuration
+     * @returns Current client configuration
+     */
+    public getConfig(): Readonly<Omit<Required<HeliusConfig>, 'logger'> & { logger?: Logger }> {
+        return this.config;
+    }
+}
