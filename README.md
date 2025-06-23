@@ -1,6 +1,6 @@
 # Delegate Framework
 
-A TypeScript framework for building robust, production-ready Solana applications with comprehensive error handling, logging, and testing.
+A TypeScript framework for building robust, production-ready blockchain workflows with comprehensive error handling, logging, and testing. Maintained by delegate.fun
 
 ## Features
 
