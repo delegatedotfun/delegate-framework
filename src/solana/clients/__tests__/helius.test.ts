@@ -501,6 +501,340 @@ describe('HeliusClient', () => {
     });
   });
 
+  describe('getTokenAccount', () => {
+    it('should successfully get token account', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: [{
+            account: {
+              data: 'base64data',
+              executable: false,
+              lamports: 1000000,
+              owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+              rentEpoch: 361,
+            },
+            pubkey: '11111111111111111111111111111111',
+          }],
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const owner = new PublicKey('11111111111111111111111111111111');
+      const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC mint
+      const tokenAccount = await client.getTokenAccount(owner, mint);
+
+      expect(tokenAccount).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTokenAccounts',
+            params: [{
+              mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+              owner: '11111111111111111111111111111111',
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should handle API errors for token account', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const owner = new PublicKey('11111111111111111111111111111111');
+      const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+      await expect(client.getTokenAccount(owner, mint)).rejects.toThrow('Helius API Error (getTokenAccounts)');
+    });
+
+    it('should handle network errors for token account', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const owner = new PublicKey('11111111111111111111111111111111');
+      const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+      await expect(client.getTokenAccount(owner, mint)).rejects.toThrow('Helius API Request Failed (getTokenAccounts)');
+    });
+
+    it('should retry on token account failure', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: { value: [] },
+      };
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const owner = new PublicKey('11111111111111111111111111111111');
+      const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+      const tokenAccount = await client.getTokenAccount(owner, mint);
+
+      expect(tokenAccount).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getTokenAccounts', () => {
+    it('should successfully get token accounts by owner', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: [
+            {
+              account: {
+                data: 'base64data1',
+                executable: false,
+                lamports: 1000000,
+                owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+                rentEpoch: 361,
+              },
+              pubkey: '11111111111111111111111111111111',
+            },
+            {
+              account: {
+                data: 'base64data2',
+                executable: false,
+                lamports: 2000000,
+                owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+                rentEpoch: 361,
+              },
+              pubkey: '22222222222222222222222222222222',
+            },
+          ],
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const owner = new PublicKey('11111111111111111111111111111111');
+      const tokenAccounts = await client.getTokenAccounts(owner);
+
+      expect(tokenAccounts).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTokenAccounts',
+            params: [{
+              owner: '11111111111111111111111111111111',
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should handle empty token accounts result', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: { value: [] },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const owner = new PublicKey('11111111111111111111111111111111');
+      const tokenAccounts = await client.getTokenAccounts(owner);
+
+      expect(tokenAccounts).toEqual(mockResponse.result);
+      expect(tokenAccounts.value).toHaveLength(0);
+    });
+
+    it('should handle API errors for token accounts', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const owner = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getTokenAccounts(owner)).rejects.toThrow('Helius API Error (getTokenAccounts)');
+    });
+  });
+
+  describe('getTokenAccountBalance', () => {
+    it('should successfully get token account balance', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '1000000000',
+            decimals: 9,
+            uiAmount: 1.0,
+            uiAmountString: '1',
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = new PublicKey('11111111111111111111111111111111');
+      const balance = await client.getTokenAccountBalance(tokenAccount);
+
+      expect(balance).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTokenAccountBalance',
+            params: ['11111111111111111111111111111111'],
+          }),
+        })
+      );
+    });
+
+    it('should handle zero balance', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '0',
+            decimals: 9,
+            uiAmount: 0,
+            uiAmountString: '0',
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = new PublicKey('11111111111111111111111111111111');
+      const balance = await client.getTokenAccountBalance(tokenAccount);
+
+      expect(balance).toEqual(mockResponse.result);
+      expect(balance.value.amount).toBe('0');
+      expect(balance.value.uiAmount).toBe(0);
+    });
+
+    it('should handle large balance values', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '999999999999999999',
+            decimals: 18,
+            uiAmount: 0.999999999999999999,
+            uiAmountString: '0.999999999999999999',
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = new PublicKey('11111111111111111111111111111111');
+      const balance = await client.getTokenAccountBalance(tokenAccount);
+
+      expect(balance).toEqual(mockResponse.result);
+      expect(balance.value.amount).toBe('999999999999999999');
+      expect(balance.value.decimals).toBe(18);
+    });
+
+    it('should handle API errors for token account balance', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getTokenAccountBalance(tokenAccount)).rejects.toThrow('Helius API Error (getTokenAccountBalance)');
+    });
+
+    it('should handle network errors for token account balance', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const tokenAccount = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getTokenAccountBalance(tokenAccount)).rejects.toThrow('Helius API Request Failed (getTokenAccountBalance)');
+    });
+
+    it('should retry on token account balance failure', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '1000000000',
+            decimals: 9,
+            uiAmount: 1.0,
+            uiAmountString: '1',
+          },
+        },
+      };
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const tokenAccount = new PublicKey('11111111111111111111111111111111');
+      const balance = await client.getTokenAccountBalance(tokenAccount);
+
+      expect(balance).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('logging', () => {
     it('should log requests and responses when logger is provided', async () => {
       const mockResponse = {
