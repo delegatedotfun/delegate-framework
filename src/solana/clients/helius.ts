@@ -96,17 +96,21 @@ export class HeliusClient {
      * @returns Token account
      */
     public async getTokenAccount(publicKey: PublicKey, mint: PublicKey): Promise<any> {
-        return this.makeRequest('getTokenAccount', [publicKey.toString(), mint.toString()]);
+        return this.makeRequest('getTokenAccounts', [{
+            mint: mint.toString(),
+            owner: publicKey.toString()
+        }]);
     }
 
     /**
      * Get token accounts by owner
      * @param publicKey - The public key to get token accounts from
-     * @param mint - contract address of the token
      * @returns Token accounts
      */
-    public async getTokenAccountsByOwner(publicKey: PublicKey, mint: PublicKey): Promise<any> {
-        return this.makeRequest('getTokenAccountsByOwner', [publicKey.toString(), { mint }]);
+    public async getTokenAccounts(publicKey: PublicKey): Promise<any> {
+        return this.makeRequest('getTokenAccounts', [{
+            owner: publicKey.toString()
+        }]);
     }
 
     /**
