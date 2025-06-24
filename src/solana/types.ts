@@ -20,8 +20,6 @@ export interface SplConfig {
     timeout?: number;
     retries?: number;
     logger?: Logger;
-    percentile?: number;
-    defaultCuPrice?: number;
 }
 
 /**
@@ -65,6 +63,14 @@ export interface RpcResponse<T = any> {
         data?: any;
     };
 } 
+
+/**
+ * Options for getting priority fee
+ */
+export interface GetPriorityFeeOptions {
+    percentile?: number;
+    defaultCuPrice?: number;
+}
 
 /**
  * Options for sending transactions

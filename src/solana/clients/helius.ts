@@ -81,23 +81,45 @@ export class HeliusClient {
     }
 
     /**
-     * Get recent blockhash
-     * @param commitment - Optional commitment level
-     * @returns Recent blockhash information
-     */
-    public async getRecentBlockhash(
-        commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'
-    ): Promise<any> {
-        return this.makeRequest('getRecentBlockhash', [{ commitment }]);
-    }
-
-    /**
      * Get slot information
      * @param commitment - Optional commitment level
      * @returns Current slot
      */
     public async getSlot(commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'): Promise<number> {
         return this.makeRequest('getSlot', [{ commitment }]);
+    }
+
+    /**
+     * Get token account
+     * @param publicKey - The public key to get token account from
+     * @param mint - contract address of the token
+     * @returns Token account
+     */
+    public async getTokenAccount(publicKey: PublicKey, mint: PublicKey): Promise<any> {
+        return this.makeRequest('getTokenAccounts', [{
+            mint: mint.toString(),
+            owner: publicKey.toString()
+        }]);
+    }
+
+    /**
+     * Get token accounts by owner
+     * @param publicKey - The public key to get token accounts from
+     * @returns Token accounts
+     */
+    public async getTokenAccounts(publicKey: PublicKey): Promise<any> {
+        return this.makeRequest('getTokenAccounts', [{
+            owner: publicKey.toString()
+        }]);
+    }
+
+    /**
+     * Get token account balance
+     * @param publicKey - The token account public key to get balance for
+     * @returns Token account balance
+     */
+    public async getTokenAccountBalance(publicKey: PublicKey): Promise<any> {
+        return this.makeRequest('getTokenAccountBalance', [publicKey.toString()]);
     }
 
     /**
@@ -125,6 +147,17 @@ export class HeliusClient {
             commitment: options.commitment || 'processed',
             minContextSlot: options.minContextSlot || 1000,
         }]);
+    }
+
+    /**
+     * Simulate a transaction
+     * @param transaction - The transaction to simulate
+     * @returns Simulation result
+     */
+    public async simulateTransaction(transaction: Transaction): Promise<any> {
+        return this.makeRequest('simulateTransaction', [
+            bs58.encode(transaction.serialize({ requireAllSignatures: false })),
+        ]);
     }
 
     /**

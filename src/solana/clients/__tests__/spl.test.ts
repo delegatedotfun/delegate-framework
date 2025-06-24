@@ -35,8 +35,6 @@ describe('SplClient', () => {
       timeout: 5000,
       retries: 2,
       logger: mockLogger,
-      percentile: 0.95,
-      defaultCuPrice: 0.5,
     });
   });
 
@@ -50,25 +48,20 @@ describe('SplClient', () => {
       
       expect(config.timeout).toBe(30000);
       expect(config.retries).toBe(3);
-      expect(config.percentile).toBe(0.9999999);
-      expect(config.defaultCuPrice).toBe(0.1);
     });
 
     it('should create client with custom configuration', () => {
       const config = client.getConfig();
       
       expect(config.connection).toBe(mockConnection);
-      // expect(config.programId).toBe(mockProgramId); // Removed, not in config
       expect(config.timeout).toBe(5000);
       expect(config.retries).toBe(2);
-      expect(config.percentile).toBe(0.95);
-      expect(config.defaultCuPrice).toBe(0.5);
       expect(config.logger).toBe(mockLogger);
     });
   });
 
   describe('getPriorityFee', () => {
-    it('should successfully calculate priority fee from recent fees', async () => {
+    it('should successfully calculate priority fee from recent fees with default options', async () => {
       const mockFees = [
         { slot: 1000, prioritizationFee: 1000 },
         { slot: 1001, prioritizationFee: 500 },
@@ -81,9 +74,35 @@ describe('SplClient', () => {
 
       const fee = await client.getPriorityFee();
 
-      // With 95th percentile and 5 fees, should get the highest fee (2000)
+      // With default 99.99999th percentile and 5 fees, should get the highest fee (2000)
       expect(fee).toBe(2000);
       expect(mockConnection.getRecentPrioritizationFees).toHaveBeenCalled();
+      expect(mockLogger.debug).toHaveBeenCalledWith('Priority fee calculation', {
+        recentFeesCount: 5,
+        percentile: 0.9999999,
+        calculatedFee: 2000,
+        finalFee: 2000,
+      });
+    });
+
+    it('should successfully calculate priority fee with custom options', async () => {
+      const mockFees = [
+        { slot: 1000, prioritizationFee: 1000 },
+        { slot: 1001, prioritizationFee: 500 },
+        { slot: 1002, prioritizationFee: 2000 },
+        { slot: 1003, prioritizationFee: 300 },
+        { slot: 1004, prioritizationFee: 1500 },
+      ];
+
+      mockConnection.getRecentPrioritizationFees.mockResolvedValue(mockFees);
+
+      const fee = await client.getPriorityFee({
+        percentile: 0.95,
+        defaultCuPrice: 0.5,
+      });
+
+      // With 95th percentile and 5 fees, should get the highest fee (2000)
+      expect(fee).toBe(2000);
       expect(mockLogger.debug).toHaveBeenCalledWith('Priority fee calculation', {
         recentFeesCount: 5,
         percentile: 0.95,
@@ -95,9 +114,9 @@ describe('SplClient', () => {
     it('should return default fee when no recent fees available', async () => {
       mockConnection.getRecentPrioritizationFees.mockResolvedValue([]);
 
-      const fee = await client.getPriorityFee();
+      const fee = await client.getPriorityFee({ defaultCuPrice: 0.5 });
 
-      expect(fee).toBe(0.5); // defaultCuPrice
+      expect(fee).toBe(0.5);
       expect(mockLogger.warn).toHaveBeenCalledWith('No recent prioritization fees found, using default');
     });
 
@@ -109,7 +128,7 @@ describe('SplClient', () => {
 
       mockConnection.getRecentPrioritizationFees.mockResolvedValue(mockFees);
 
-      const fee = await client.getPriorityFee();
+      const fee = await client.getPriorityFee({ defaultCuPrice: 0.5 });
 
       // Should use defaultCuPrice (0.5) since calculated fee (0.2) is lower
       expect(fee).toBe(0.5);
@@ -161,19 +180,13 @@ describe('SplClient', () => {
 
       mockConnection.getRecentPrioritizationFees.mockResolvedValue(mockFees);
 
-      const fee = await client.getPriorityFee();
+      const fee = await client.getPriorityFee({ percentile: 0.95 });
 
       // 95th percentile of 10 items = 10 * (1 - 0.95) = 0.5, floor = 0, so highest fee
       expect(fee).toBe(1000);
     });
 
     it('should handle edge case with very high percentile', async () => {
-      const clientWithHighPercentile = new SplClient({
-        connection: mockConnection,
-        programId: mockProgramId,
-        percentile: 0.999999, // Very high percentile
-      });
-
       const mockFees = [
         { slot: 1000, prioritizationFee: 1000 },
         { slot: 1001, prioritizationFee: 500 },
@@ -182,7 +195,7 @@ describe('SplClient', () => {
 
       mockConnection.getRecentPrioritizationFees.mockResolvedValue(mockFees);
 
-      const fee = await clientWithHighPercentile.getPriorityFee();
+      const fee = await client.getPriorityFee({ percentile: 0.999999 });
 
       // Should get the highest fee due to very high percentile
       expect(fee).toBe(2000);
