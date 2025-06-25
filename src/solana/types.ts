@@ -1,3 +1,4 @@
+import { QuoteResponse } from "@jup-ag/api";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 /**
@@ -17,6 +18,16 @@ export interface HeliusConfig {
 export interface SplConfig {
     connection: Connection;
     programId: PublicKey;
+    timeout?: number;
+    retries?: number;
+    logger?: Logger;
+}
+
+/**
+ * Configuration interface for JupiterClient
+ */
+export interface JupiterConfig {
+    quoteApiUrl?: string;
     timeout?: number;
     retries?: number;
     logger?: Logger;
@@ -70,6 +81,15 @@ export interface RpcResponse<T = any> {
 export interface GetPriorityFeeOptions {
     percentile?: number;
     defaultCuPrice?: number;
+}
+
+export interface SwapParams {
+    quoteResponse: QuoteResponse;
+    userPublicKey: string;
+    wrapAndUnwrapSol?: boolean;
+    feeAccount?: string;
+    dynamicComputeUnitLimit?: boolean;
+    prioritizationFeeLamports?: string;
 }
 
 /**

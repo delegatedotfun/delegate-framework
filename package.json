@@ -58,7 +58,13 @@
   },
   "homepage": "https://github.com/delegatedotfun/delegate-framework#readme",
   "dependencies": {
+    "@bundlr-network/client": "^0.11.17",
+    "@irys/upload": "^0.0.15",
+    "@irys/upload-solana": "^0.1.8",
+    "@jup-ag/api": "^6.0.42",
     "@solana/web3.js": "^1.98.2",
+    "@types/bignumber.js": "^5.0.4",
+    "bignumber.js": "^9.3.0",
     "bs58": "^6.0.0"
   }
 }
