@@ -206,7 +206,7 @@ describe('ArweaveClient', () => {
       expect(result.txId).toBe('image-tx-id');
       expect(mockLogger.debug).toHaveBeenCalledWith(
         expect.stringContaining('Request'),
-        expect.objectContaining({ contentType: testContentType, dataSize: testImageBuffer.length })
+        expect.objectContaining({ mimeType: testContentType, dataSize: testImageBuffer.length })
       );
     });
 

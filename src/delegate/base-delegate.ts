@@ -91,14 +91,15 @@ export abstract class BaseDelegate<T extends BaseDelegateOptions = BaseDelegateO
     }
 
     protected validateStringField(value: string, fieldName: string, minLength: number = 1): void {
-        this.validateRequiredField(value, fieldName);
-        if (typeof value !== 'string' || value.length < minLength) {
+        if (typeof value !== 'string') {
+            throw new Error(`${fieldName} must be a non-empty string`);
+        }
+        if (value.length < minLength) {
             throw new Error(`${fieldName} must be a non-empty string`);
         }
     }
 
     protected validateNumberField(value: number, fieldName: string, min?: number, max?: number): void {
-        this.validateRequiredField(value, fieldName);
         if (typeof value !== 'number' || isNaN(value)) {
             throw new Error(`${fieldName} must be a valid number`);
         }
