@@ -1,6 +1,6 @@
 {
   "name": "delegate-framework",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A TypeScript framework for building robust, production-ready blockchain workflows with comprehensive error handling, logging, and testing. Maintained by delegate.fun",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -62,9 +62,12 @@
     "@irys/upload": "^0.0.15",
     "@irys/upload-solana": "^0.1.8",
     "@jup-ag/api": "^6.0.42",
+    "@raydium-io/raydium-sdk-v2": "0.1.139-alpha",
+    "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.2",
     "@types/bignumber.js": "^5.0.4",
     "bignumber.js": "^9.3.0",
+    "bn.js": "^5.2.2",
     "bs58": "^6.0.0"
   }
 }

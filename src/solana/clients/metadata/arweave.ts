@@ -4,6 +4,7 @@ import bs58 from 'bs58';
 import BigNumber from 'bignumber.js';
 import { throwError } from "../../../utils/error-handling";
 import { Logger } from "../../types";
+import { MetadataClient } from "./base";
 
 export interface ArweaveConfig {
   privateKey: string; // Base58 encoded private key
@@ -27,7 +28,7 @@ export interface ArweaveCostResult {
   dataSize: number;
 }
 
-export class ArweaveClient {
+export class ArweaveClient implements MetadataClient {
   private static readonly DEFAULT_TIMEOUT = 60000; // 60 seconds for uploads
   private static readonly DEFAULT_RETRIES = 3;
   private static readonly DEFAULT_BUNDLR_URL = "https://node1.bundlr.network";
@@ -98,16 +99,16 @@ export class ArweaveClient {
   /**
    * Upload image to Arweave using Bundlr Network
    * @param imageBuffer - The image buffer to upload
-   * @param contentType - The MIME type of the image (e.g., "image/png", "image/jpeg")
+   * @param mimeType - The MIME type of the image (e.g., "image/png", "image/jpeg")
    * @returns Promise<ArweaveUploadResult>
    */
   public async uploadImage(
     imageBuffer: Buffer, 
-    contentType: string
+    mimeType?: string
   ): Promise<ArweaveUploadResult> {
     const requestId = ++this.requestId;
     this.logger?.debug(`Request ${requestId} started: uploadImage`, {
-      contentType,
+      mimeType,
       dataSize: imageBuffer.length,
     });
 
@@ -115,7 +116,7 @@ export class ArweaveClient {
       return await this.makeRequest(async () => {
         return await this.performUpload(imageBuffer, {
           tags: [
-            { name: "Content-Type", value: contentType },
+            { name: "Content-Type", value: mimeType || 'image/png' },
             { name: "App-Name", value: "Delegate-Framework" },
             { name: "App-Version", value: "1.0.0" }
           ]

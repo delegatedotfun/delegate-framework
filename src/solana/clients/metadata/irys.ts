@@ -7,6 +7,7 @@ import os from "os";
 import path from "path";
 import { throwError } from "../../../utils/error-handling";
 import { Logger } from "../../types";
+import { MetadataClient, UploadResult } from "./base";
 
 export interface IrysConfig {
   privateKey: string; // Base58 encoded private key
@@ -17,11 +18,9 @@ export interface IrysConfig {
   logger?: Logger;
 }
 
-export interface IrysUploadResult {
-  success: boolean;
-  uri?: string;
-  error?: string;
-  txId?: string;
+export interface IrysUploadResult extends UploadResult {
+  // Inherits all properties from UploadResult
+  // Can add Irys-specific properties here if needed
 }
 
 export interface IrysCostResult {
@@ -29,7 +28,7 @@ export interface IrysCostResult {
   dataSize: number;
 }
 
-export class IrysClient {
+export class IrysClient implements MetadataClient {
   private static readonly DEFAULT_TIMEOUT = 60000; // 60 seconds for uploads
   private static readonly DEFAULT_RETRIES = 3;
   private static readonly DEFAULT_MIN_BALANCE_SOL = 0.02;
@@ -119,7 +118,7 @@ export class IrysClient {
    */
   public async uploadImage(
     imageBuffer: Buffer, 
-    mimeType: string
+    mimeType?: string
   ): Promise<IrysUploadResult> {
     const requestId = ++this.requestId;
     this.logger?.debug(`Request ${requestId} started: uploadImage`, {
