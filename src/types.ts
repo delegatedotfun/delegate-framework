@@ -2,34 +2,24 @@
  * Core types for the delegate framework
  */
 
-export interface Delegate<T = any> {
-  (target: T, ...args: any[]): any;
+// Task-related types (core framework types)
+export type TaskStatus = 'completed' | 'running' | 'failed' | 'new';
+export type ScheduleUnit = 'minutes' | 'hours' | 'days';
+
+export interface ScheduleInterval {
+    unit: ScheduleUnit;
+    interval: number;
 }
 
-export interface DelegateContext<T = any> {
-  target: T;
-  args: any[];
-  result?: any;
-  error?: Error;
+export interface BaseTask {
+    type: string;
+    id: string;
+    name: string;
+    status: TaskStatus;
+    lastRun: Date;
+    nextRun: Date | null;
+    scheduleEnabled: boolean;
+    scheduleInterval: ScheduleInterval;
+    createdAt: Date;
+    updatedAt: Date;
 }
-
-export interface DelegateOptions {
-  timeout?: number;
-  retries?: number;
-  fallback?: Delegate;
-}
-
-export interface DelegateChain<T = any> {
-  add(delegate: Delegate<T>): DelegateChain<T>;
-  remove(delegate: Delegate<T>): DelegateChain<T>;
-  execute(target: T, ...args: any[]): Promise<any>;
-  clear(): void;
-}
-
-export type DelegateResult<T = any> = {
-  success: true;
-  data: T;
-} | {
-  success: false;
-  error: Error;
-}; 

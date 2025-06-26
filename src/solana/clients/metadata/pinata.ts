@@ -1,5 +1,6 @@
 import { throwError } from "../../../utils/error-handling";
 import { Logger } from "../../types";
+import { MetadataClient } from "./base";
 
 export interface PinataConfig {
   jwt: string; // Pinata JWT token
@@ -16,7 +17,7 @@ export interface PinataUploadResult {
   cid?: string;
 }
 
-export class PinataClient {
+export class PinataClient implements MetadataClient {
   private static readonly DEFAULT_TIMEOUT = 60000; // 60 seconds for uploads
   private static readonly DEFAULT_RETRIES = 3;
   private static readonly DEFAULT_GATEWAY = 'https://gateway.pinata.cloud';
@@ -87,7 +88,7 @@ export class PinataClient {
    */
   public async uploadImage(
     imageBuffer: Buffer, 
-    mimeType: string,
+    mimeType?: string,
     fileName = 'image'
   ): Promise<PinataUploadResult> {
     const requestId = ++this.requestId;
