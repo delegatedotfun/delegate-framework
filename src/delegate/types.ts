@@ -82,3 +82,48 @@ export interface DeployerDelegateResult extends BaseDelegateResult {
     tokenMint?: string;
     metadataUri?: string;
 }
+
+// Burner-specific types
+export interface BurnerTask extends BaseTask {
+    type: typeof DELEGATE_TYPES.BURNER;
+}
+
+export interface BurnerDelegateOptions extends BaseDelegateOptions {
+    type: typeof DELEGATE_TYPES.BURNER;
+    tokenAddress: string;
+    numTokens: number;
+    privateKey: string;
+}
+
+export interface BurnerDelegateResult extends BaseDelegateResult {
+    signatures: string[];
+    burnedAmount: string;
+    tokenMint: string;
+}
+
+// Allocator-specific types
+export interface AllocatorTask extends BaseTask {
+    type: typeof DELEGATE_TYPES.ALLOCATOR;
+}
+
+export interface Allocation {
+    contractAddress: string;
+    percentage: number;
+}
+
+export interface AllocatorDelegateOptions extends BaseDelegateOptions {
+    type: typeof DELEGATE_TYPES.ALLOCATOR;
+    allocations: Allocation[];
+    slippageBps?: number;
+    costBuffer?: number;
+}
+
+export interface AllocatorDelegateResult extends BaseDelegateResult {
+    signatures: string[];
+    allocations: {
+        contractAddress: string;
+        percentage: number;
+        amountAllocated: number;
+        signature: string;
+    }[];
+}
