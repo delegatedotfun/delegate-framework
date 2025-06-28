@@ -150,6 +150,33 @@ export class HeliusClient {
     }
 
     /**
+     * Get top token holders
+     * @param tokenAddress - The token mint address
+     * @returns Top token holders information
+     */
+    public async getTopHolders(tokenAddress: string): Promise<any> {
+        return this.makeRequest('getTokenLargestAccounts', [tokenAddress]);
+    }
+
+    /**
+     * Get token account owner
+     * @param tokenAccount - The token account address
+     * @returns Token account owner address
+     */
+    public async getTokenAccountOwner(tokenAccount: string): Promise<string> {
+        const accountInfo = await this.makeRequest('getAccountInfo', [
+            tokenAccount,
+            { encoding: 'jsonParsed' }
+        ]);
+
+        if (!accountInfo || !accountInfo.data || !accountInfo.data.parsed || !accountInfo.data.parsed.info || !accountInfo.data.parsed.info.owner) {
+            throw new Error('Invalid token account data');
+        }
+
+        return accountInfo.data.parsed.info.owner;
+    }
+
+    /**
      * Simulate a transaction
      * @param transaction - The transaction to simulate
      * @returns Simulation result
