@@ -127,3 +127,32 @@ export interface AllocatorDelegateResult extends BaseDelegateResult {
         signature: string;
     }[];
 }
+
+// Distributor-specific types
+export interface DistributorTask extends BaseTask {
+    type: typeof DELEGATE_TYPES.DISTRIBUTOR;
+}
+
+export type DistributionType = 'single' | 'multi' | 'holders';
+export type DistributionMethod = 'topx' | 'all';
+
+export interface DistributorDelegateOptions extends BaseDelegateOptions {
+    type: typeof DELEGATE_TYPES.DISTRIBUTOR;
+    distributionType: DistributionType;
+    distributionMethod?: DistributionMethod;
+    numTokens: number;
+    tokenAddress?: string;
+    singleAddress?: string;
+    multipleAddresses?: string[];
+    topX?: number;
+    holderOfWhichToken?: string;
+}
+
+export interface DistributorDelegateResult extends BaseDelegateResult {
+    signatures: string[];
+    recipients: {
+        address: string;
+        amount: number;
+        signature: string;
+    }[];
+}

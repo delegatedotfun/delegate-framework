@@ -894,4 +894,292 @@ describe('HeliusClient', () => {
       expect(mockLogger.debug).toHaveBeenCalledWith('Request 2:', expect.any(Object));
     });
   });
+
+  describe('getTopHolders', () => {
+    it('should successfully get top token holders', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: [
+            {
+              address: '11111111111111111111111111111111',
+              amount: '1000000000',
+              decimals: 9,
+              uiAmount: 1.0,
+              uiAmountString: '1',
+            },
+            {
+              address: '22222222222222222222222222222222',
+              amount: '500000000',
+              decimals: 9,
+              uiAmount: 0.5,
+              uiAmountString: '0.5',
+            },
+          ],
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC mint
+      const holders = await client.getTopHolders(tokenAddress);
+
+      expect(holders).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTokenLargestAccounts',
+            params: [tokenAddress],
+          }),
+        })
+      );
+    });
+
+    it('should handle empty holders result', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: { value: [] },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const holders = await client.getTopHolders(tokenAddress);
+
+      expect(holders).toEqual(mockResponse.result);
+      expect(holders.value).toHaveLength(0);
+    });
+
+    it('should handle API errors for top holders', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+      await expect(client.getTopHolders(tokenAddress)).rejects.toThrow('Helius API Error (getTokenLargestAccounts)');
+    });
+
+    it('should handle network errors for top holders', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+      await expect(client.getTopHolders(tokenAddress)).rejects.toThrow('Helius API Request Failed (getTokenLargestAccounts)');
+    });
+
+    it('should retry on top holders failure', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: { value: [] },
+      };
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const holders = await client.getTopHolders(tokenAddress);
+
+      expect(holders).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getTokenAccountOwner', () => {
+    it('should successfully get token account owner', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          data: {
+            parsed: {
+              info: {
+                owner: '11111111111111111111111111111111',
+                mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+                state: 'initialized',
+                tokenAmount: {
+                  amount: '1000000000',
+                  decimals: 9,
+                  uiAmount: 1.0,
+                  uiAmountString: '1',
+                },
+              },
+              type: 'account',
+            },
+          },
+          executable: false,
+          lamports: 1000000,
+          owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+          rentEpoch: 361,
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = '11111111111111111111111111111111';
+      const owner = await client.getTokenAccountOwner(tokenAccount);
+
+      expect(owner).toBe('11111111111111111111111111111111');
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getAccountInfo',
+            params: [tokenAccount, { encoding: 'jsonParsed' }],
+          }),
+        })
+      );
+    });
+
+    it('should handle invalid token account data', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: null, // Account doesn't exist
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = '11111111111111111111111111111111';
+
+      await expect(client.getTokenAccountOwner(tokenAccount)).rejects.toThrow('Invalid token account data');
+    });
+
+    it('should handle malformed token account data', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          data: {
+            parsed: {
+              info: {
+                // Missing owner field
+                mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+              },
+            },
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = '11111111111111111111111111111111';
+
+      await expect(client.getTokenAccountOwner(tokenAccount)).rejects.toThrow('Invalid token account data');
+    });
+
+    it('should handle non-parsed account data', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          data: 'base64data', // Not parsed
+          executable: false,
+          lamports: 1000000,
+          owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+          rentEpoch: 361,
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = '11111111111111111111111111111111';
+
+      await expect(client.getTokenAccountOwner(tokenAccount)).rejects.toThrow('Invalid token account data');
+    });
+
+    it('should handle API errors for token account owner', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAccount = '11111111111111111111111111111111';
+
+      await expect(client.getTokenAccountOwner(tokenAccount)).rejects.toThrow('Helius API Error (getAccountInfo)');
+    });
+
+    it('should handle network errors for token account owner', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const tokenAccount = '11111111111111111111111111111111';
+
+      await expect(client.getTokenAccountOwner(tokenAccount)).rejects.toThrow('Helius API Request Failed (getAccountInfo)');
+    });
+
+    it('should retry on token account owner failure', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          data: {
+            parsed: {
+              info: {
+                owner: '11111111111111111111111111111111',
+                mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+              },
+            },
+          },
+        },
+      };
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const tokenAccount = '11111111111111111111111111111111';
+      const owner = await client.getTokenAccountOwner(tokenAccount);
+
+      expect(owner).toBe('11111111111111111111111111111111');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
 }); 
