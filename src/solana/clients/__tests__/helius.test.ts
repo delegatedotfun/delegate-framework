@@ -1,3 +1,13 @@
+let warnSpy: jest.SpyInstance;
+
+beforeAll(() => {
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  warnSpy.mockRestore();
+});
+
 import { HeliusClient } from '../helius';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import bs58 from 'bs58';
@@ -1180,6 +1190,454 @@ describe('HeliusClient', () => {
 
       expect(owner).toBe('11111111111111111111111111111111');
       expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getTokenSupply', () => {
+    it('should successfully get token supply', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '1000000000000000000000000',
+            decimals: 9,
+            uiAmount: 1000000000,
+            uiAmountString: '1000000000',
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC mint
+      const supply = await client.getTokenSupply(tokenAddress);
+
+      expect(supply).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTokenSupply',
+            params: [tokenAddress],
+          }),
+        })
+      );
+    });
+
+    it('should handle API errors for token supply', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+      await expect(client.getTokenSupply(tokenAddress)).rejects.toThrow('Helius API Error (getTokenSupply)');
+    });
+
+    it('should handle network errors for token supply', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+      await expect(client.getTokenSupply(tokenAddress)).rejects.toThrow('Helius API Request Failed (getTokenSupply)');
+    });
+
+    it('should retry on token supply failure', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '1000000000000000000000000',
+            decimals: 9,
+            uiAmount: 1000000000,
+            uiAmountString: '1000000000',
+          },
+        },
+      };
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const supply = await client.getTokenSupply(tokenAddress);
+
+      expect(supply).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getTokenInfo', () => {
+    it('should successfully get token info with decimals', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '1000000000000000000000000',
+            decimals: 9,
+            uiAmount: 1000000000,
+            uiAmountString: '1000000000',
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const tokenInfo = await client.getTokenInfo(tokenAddress);
+
+      expect(tokenInfo).toEqual({ decimals: 9 });
+    });
+
+    it('should return null when decimals not found', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '1000000000000000000000000',
+            // Missing decimals
+            uiAmount: 1000000000,
+            uiAmountString: '1000000000',
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const tokenInfo = await client.getTokenInfo(tokenAddress);
+
+      expect(tokenInfo).toBeNull();
+    });
+
+    it('should return null when API error occurs', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const tokenInfo = await client.getTokenInfo(tokenAddress);
+
+      expect(tokenInfo).toBeNull();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        `Failed to get token info for ${tokenAddress}:`,
+        expect.any(Error)
+      );
+    });
+
+    it('should return null when network error occurs', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const tokenInfo = await client.getTokenInfo(tokenAddress);
+
+      expect(tokenInfo).toBeNull();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        `Failed to get token info for ${tokenAddress}:`,
+        expect.any(Error)
+      );
+    });
+
+    it('should handle different decimal values', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            amount: '1000000000000000000000000',
+            decimals: 18, // Different decimal value
+            uiAmount: 1,
+            uiAmountString: '1',
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      const tokenInfo = await client.getTokenInfo(tokenAddress);
+
+      expect(tokenInfo).toEqual({ decimals: 18 });
+    });
+  });
+
+  describe('getWalletTokenData', () => {
+    it('should successfully get wallet token data', async () => {
+      const walletAddress = '11111111111111111111111111111111';
+      
+      // Mock SOL account info response
+      const solAccountResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          data: 'base64data',
+          executable: false,
+          lamports: 1000000,
+          owner: '11111111111111111111111111111111',
+          rentEpoch: 361,
+        },
+      };
+
+      // Mock SPL token accounts response
+      const splTokenResponse = {
+        jsonrpc: '2.0',
+        id: 2,
+        result: {
+          context: { slot: 12345 },
+          value: [
+            {
+              account: {
+                data: 'base64data1',
+                executable: false,
+                lamports: 1000000,
+                owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+                rentEpoch: 361,
+              },
+              pubkey: '22222222222222222222222222222222',
+            },
+          ],
+        },
+      };
+
+      // Mock Token-2022 accounts response
+      const token2022Response = {
+        jsonrpc: '2.0',
+        id: 3,
+        result: {
+          context: { slot: 12345 },
+          value: [
+            {
+              account: {
+                data: 'base64data2',
+                executable: false,
+                lamports: 2000000,
+                owner: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+                rentEpoch: 361,
+              },
+              pubkey: '33333333333333333333333333333333',
+            },
+          ],
+        },
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => solAccountResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => splTokenResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => token2022Response,
+        } as Response);
+
+      const walletData = await client.getWalletTokenData(walletAddress);
+
+      expect(walletData).toEqual({
+        owner: walletAddress,
+        solAccountInfo: solAccountResponse.result,
+        tokenAccounts: {
+          context: splTokenResponse.result.context,
+          value: [
+            ...splTokenResponse.result.value,
+            ...token2022Response.result.value,
+          ],
+        },
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('should handle API errors for wallet token data', async () => {
+      const walletAddress = '11111111111111111111111111111111';
+      
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      await expect(client.getWalletTokenData(walletAddress)).rejects.toThrow('Helius API Error (getAccountInfo)');
+    });
+
+    it('should handle network errors for wallet token data', async () => {
+      const walletAddress = '11111111111111111111111111111111';
+      
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      await expect(client.getWalletTokenData(walletAddress)).rejects.toThrow('Helius API Request Failed (getAccountInfo)');
+    });
+
+    it('should handle empty token accounts', async () => {
+      const walletAddress = '11111111111111111111111111111111';
+      
+      // Mock SOL account info response
+      const solAccountResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          data: 'base64data',
+          executable: false,
+          lamports: 1000000,
+          owner: '11111111111111111111111111111111',
+          rentEpoch: 361,
+        },
+      };
+
+      // Mock empty SPL token accounts response
+      const splTokenResponse = {
+        jsonrpc: '2.0',
+        id: 2,
+        result: {
+          context: { slot: 12345 },
+          value: [],
+        },
+      };
+
+      // Mock empty Token-2022 accounts response
+      const token2022Response = {
+        jsonrpc: '2.0',
+        id: 3,
+        result: {
+          context: { slot: 12345 },
+          value: [],
+        },
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => solAccountResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => splTokenResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => token2022Response,
+        } as Response);
+
+      const walletData = await client.getWalletTokenData(walletAddress);
+
+      expect(walletData).toEqual({
+        owner: walletAddress,
+        solAccountInfo: solAccountResponse.result,
+        tokenAccounts: {
+          context: splTokenResponse.result.context,
+          value: [],
+        },
+      });
+    });
+
+    it('should retry on wallet token data failure', async () => {
+      const walletAddress = '11111111111111111111111111111111';
+      
+      // Mock SOL account info response
+      const solAccountResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          data: 'base64data',
+          executable: false,
+          lamports: 1000000,
+          owner: '11111111111111111111111111111111',
+          rentEpoch: 361,
+        },
+      };
+
+      // Mock SPL token accounts response
+      const splTokenResponse = {
+        jsonrpc: '2.0',
+        id: 2,
+        result: {
+          context: { slot: 12345 },
+          value: [],
+        },
+      };
+
+      // Mock Token-2022 accounts response
+      const token2022Response = {
+        jsonrpc: '2.0',
+        id: 3,
+        result: {
+          context: { slot: 12345 },
+          value: [],
+        },
+      };
+
+      // First call fails, subsequent calls succeed
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => solAccountResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => splTokenResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => token2022Response,
+        } as Response);
+
+      const walletData = await client.getWalletTokenData(walletAddress);
+
+      expect(walletData).toEqual({
+        owner: walletAddress,
+        solAccountInfo: solAccountResponse.result,
+        tokenAccounts: {
+          context: splTokenResponse.result.context,
+          value: [],
+        },
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(4);
     });
   });
 }); 

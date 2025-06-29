@@ -13,6 +13,20 @@ class TestDelegate extends BaseDelegate<BaseDelegateOptions, BaseDelegateResult>
     }
 }
 
+let logSpy: jest.SpyInstance, errorSpy: jest.SpyInstance, warnSpy: jest.SpyInstance;
+
+beforeAll(() => {
+  logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  logSpy.mockRestore();
+  errorSpy.mockRestore();
+  warnSpy.mockRestore();
+});
+
 describe('BaseDelegate', () => {
     let delegate: TestDelegate;
     let connection: Connection;

@@ -10,6 +10,20 @@ import {
 } from "../types";
 import { DELEGATE_TYPES } from "../constants";
 
+let logSpy: jest.SpyInstance, errorSpy: jest.SpyInstance, warnSpy: jest.SpyInstance;
+
+beforeAll(() => {
+  logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  logSpy.mockRestore();
+  errorSpy.mockRestore();
+  warnSpy.mockRestore();
+});
+
 describe('Delegate Types', () => {
     describe('BaseDelegateOptions', () => {
         it('should allow type property and additional properties', () => {

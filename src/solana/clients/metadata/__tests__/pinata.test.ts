@@ -14,6 +14,20 @@ global.Blob = jest.fn().mockImplementation((content, options) => ({
   type: options?.type || 'application/octet-stream',
 }));
 
+let logSpy: jest.SpyInstance, errorSpy: jest.SpyInstance, warnSpy: jest.SpyInstance;
+
+beforeAll(() => {
+  logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  logSpy.mockRestore();
+  errorSpy.mockRestore();
+  warnSpy.mockRestore();
+});
+
 describe('PinataClient', () => {
   let client: PinataClient;
   let mockLogger: jest.Mocked<Logger>;

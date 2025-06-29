@@ -20,6 +20,18 @@ jest.mock('@solana/web3.js', () => {
 // Increase Jest timeout for slow tests
 jest.setTimeout(15000);
 
+beforeAll(() => {
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  (console.log as jest.Mock).mockRestore();
+  (console.error as jest.Mock).mockRestore();
+  (console.warn as jest.Mock).mockRestore();
+});
+
 describe('JupiterClient', () => {
   let client: JupiterClient;
   let mockFetch: jest.MockedFunction<typeof fetch>;
