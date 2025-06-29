@@ -177,6 +177,72 @@ export class HeliusClient {
     }
 
     /**
+     * Get token supply information
+     * @param tokenAddress - The token mint address
+     * @returns Token supply information including decimals
+     */
+    public async getTokenSupply(tokenAddress: string): Promise<any> {
+        return this.makeRequest('getTokenSupply', [tokenAddress]);
+    }
+
+    /**
+     * Get token info (decimals) from supply
+     * @param tokenAddress - The token mint address
+     * @returns Token info with decimals, or null if not found
+     */
+    public async getTokenInfo(tokenAddress: string): Promise<{ decimals: number } | null> {
+        try {
+            const supplyInfo = await this.getTokenSupply(tokenAddress);
+            const decimals = supplyInfo?.value?.decimals;
+            
+            if (typeof decimals === 'number') {
+                return { decimals };
+            }
+            
+            return null;
+        } catch (error) {
+            this.logger?.warn(`Failed to get token info for ${tokenAddress}:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * Get comprehensive token account data for a wallet
+     * @param walletAddress - The wallet public key
+     * @returns Token account data including SOL balance and all token accounts
+     */
+    public async getWalletTokenData(walletAddress: string): Promise<any> {
+        try {
+            // Get SOL account info
+            const solAccountInfo = await this.getAccountInfo(new PublicKey(walletAddress));
+            
+            // Get SPL Token accounts
+            const splTokenAccounts = await this.makeRequest('getTokenAccountsByOwner', [
+                walletAddress,
+                { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' } // TOKEN_PROGRAM_ID
+            ]);
+            
+            // Get Token-2022 accounts
+            const token2022Accounts = await this.makeRequest('getTokenAccountsByOwner', [
+                walletAddress,
+                { programId: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' } // TOKEN_2022_PROGRAM_ID
+            ]);
+            
+            return {
+                owner: walletAddress,
+                solAccountInfo,
+                tokenAccounts: {
+                    context: splTokenAccounts.context,
+                    value: [...splTokenAccounts.value, ...token2022Accounts.value],
+                }
+            };
+        } catch (error) {
+            this.logger?.error(`Failed to get wallet token data for ${walletAddress}:`, error);
+            throw error;
+        }
+    }
+
+    /**
      * Simulate a transaction
      * @param transaction - The transaction to simulate
      * @returns Simulation result

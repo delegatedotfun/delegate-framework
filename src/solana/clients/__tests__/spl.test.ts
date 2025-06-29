@@ -7,6 +7,20 @@ jest.mock('@solana/web3.js', () => ({
   Connection: jest.fn(),
 }));
 
+let logSpy: jest.SpyInstance, errorSpy: jest.SpyInstance, warnSpy: jest.SpyInstance;
+
+beforeAll(() => {
+  logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  logSpy.mockRestore();
+  errorSpy.mockRestore();
+  warnSpy.mockRestore();
+});
+
 describe('SplClient', () => {
   let client: SplClient;
   let mockConnection: jest.Mocked<Connection>;

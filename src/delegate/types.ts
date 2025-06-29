@@ -156,3 +156,54 @@ export interface DistributorDelegateResult extends BaseDelegateResult {
         signature: string;
     }[];
 }
+
+export interface SwapQuote {
+    inputMint: string;
+    outputMint: string;
+    inputAmount: string;
+    outputAmount: string;
+    priceImpact?: number;
+    swapUsdValue?: number;
+    [key: string]: any; // Allow additional properties
+  }
+  
+  export interface SwapTransaction {
+    serialize(): Buffer;
+    sign(signers: Keypair[]): void;
+    [key: string]: any; // Allow additional properties for protocol-specific data
+  }
+  
+  export interface SwapResult {
+    success: boolean;
+    signature?: string;
+    error?: string;
+    outputAmount?: string;
+    priceImpact?: number;
+    protocol?: string;
+  }
+
+  export interface RaydiumSwapCompute {
+    id: string;
+    success: true;
+    version: 'V0' | 'V1';
+    openTime?: undefined;
+    msg: undefined;
+    data: {
+      swapType: 'BaseIn' | 'BaseOut';
+      inputMint: string;
+      inputAmount: string;
+      outputMint: string;
+      outputAmount: string;
+      otherAmountThreshold: string;
+      slippageBps: number;
+      priceImpactPct: number;
+      routePlan: {
+        poolId: string;
+        inputMint: string;
+        outputMint: string;
+        feeMint: string;
+        feeRate: number;
+        feeAmount: string;
+      }[];
+    };
+  }

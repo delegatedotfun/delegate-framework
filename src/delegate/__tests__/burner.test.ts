@@ -34,6 +34,20 @@ async function waitForPromiseToSettleWithTimers(promise: Promise<any>, maxIterat
     return promise;
 }
 
+let logSpy: jest.SpyInstance, errorSpy: jest.SpyInstance, warnSpy: jest.SpyInstance;
+
+beforeAll(() => {
+  logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterAll(() => {
+  logSpy.mockRestore();
+  errorSpy.mockRestore();
+  warnSpy.mockRestore();
+});
+
 describe('Burner', () => {
     let burner: Burner;
     let connection: Connection;

@@ -32,13 +32,22 @@ const { Uploader } = require('@irys/upload');
 const MockFs = fs as jest.Mocked<typeof fs>;
 const MockOs = os as jest.Mocked<typeof os>;
 
-// Patch IrysClient static delays for fast tests
-afterAll(() => {
+let logSpy: jest.SpyInstance, errorSpy: jest.SpyInstance, warnSpy: jest.SpyInstance;
+
+beforeAll(() => {
+  logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
   (IrysClient as any).VERIFICATION_RETRIES = 5;
   (IrysClient as any).VERIFICATION_DELAY = 3000;
 });
 
-beforeAll(() => {
+afterAll(() => {
+  logSpy.mockRestore();
+  errorSpy.mockRestore();
+  warnSpy.mockRestore();
+
   (IrysClient as any).VERIFICATION_RETRIES = 2;
   (IrysClient as any).VERIFICATION_DELAY = 5;
 });
