@@ -157,6 +157,54 @@ export interface DistributorDelegateResult extends BaseDelegateResult {
     }[];
 }
 
+// Hopper-specific types
+export interface HopperTask extends BaseTask {
+    type: typeof DELEGATE_TYPES.HOPPER;
+}
+
+export interface HopperDelegateOptions extends BaseDelegateOptions {
+    type: typeof DELEGATE_TYPES.HOPPER;
+    hopDestination: string;
+    numOfHops: number;
+    numTokens: number;
+    tokenType: 'sol' | 'token';
+    tokenAddress?: string; // Required when tokenType is 'token'
+    scheduleEnabled?: boolean;
+}
+
+export interface HopperDelegateResult extends BaseDelegateResult {
+    signatures: string[];
+    hopMap: {
+        publicKey: string;
+        privateKey: string;
+    }[];
+    finalDestination: string;
+    totalHops: number;
+}
+
+// Liquidator-specific types
+export interface LiquidatorTask extends BaseTask {
+    type: typeof DELEGATE_TYPES.LIQUIDATOR;
+}
+
+export interface LiquidatorDelegateOptions extends BaseDelegateOptions {
+    type: typeof DELEGATE_TYPES.LIQUIDATOR;
+    delegateAddress: string;
+    tokenAddress: string;
+    minUsdValue?: number;
+    scheduleEnabled?: boolean;
+}
+
+export interface LiquidatorDelegateResult extends BaseDelegateResult {
+    signatures: string[];
+    liquidatedTokens: {
+        mint: string;
+        amount: number;
+        signature: string;
+    }[];
+    totalLiquidated: number;
+}
+
 export interface SwapQuote {
     inputMint: string;
     outputMint: string;
