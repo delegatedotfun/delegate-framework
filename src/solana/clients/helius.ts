@@ -47,7 +47,7 @@ export class HeliusClient {
      * @param publicKey - The public key to check balance for
      * @returns Balance in lamports
      */
-    public async getBalance(publicKey: PublicKey): Promise<number> {
+    public async getBalance(publicKey: PublicKey): Promise<any> {
         return this.makeRequest('getBalance', [publicKey.toString()]);
     }
 
