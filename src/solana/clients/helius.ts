@@ -7,6 +7,7 @@ export class HeliusClient {
     private static readonly DEFAULT_TIMEOUT = 30000;
     private static readonly DEFAULT_RETRIES = 3;
     private static readonly DEFAULT_RPC_URL = "https://mainnet.helius-rpc.com";
+    private static readonly DEFAULT_ENHANCED_API_URL = "https://api.helius.xyz/v0";
     
     private readonly config: Omit<Required<HeliusConfig>, 'logger'> & { logger?: Logger };
     private readonly logger?: Logger;
@@ -15,6 +16,7 @@ export class HeliusClient {
     constructor(config: HeliusConfig) {
         this.config = {
             rpcUrl: HeliusClient.DEFAULT_RPC_URL,
+            enhancedApiUrl: HeliusClient.DEFAULT_ENHANCED_API_URL,
             timeout: HeliusClient.DEFAULT_TIMEOUT,
             retries: HeliusClient.DEFAULT_RETRIES,
             ...config,
@@ -78,6 +80,19 @@ export class HeliusClient {
             signature,
             { commitment }
         ]);
+    }
+
+    /**
+     * Get transactions for a public key
+     * @param publicKey - The public key to get transactions for
+     * @param options - Optional configuration for transaction retrieval
+     * @returns Transactions
+     */
+    public async getTransactions(publicKey: PublicKey): Promise<any> {
+        // Use enhanced API endpoint for getTransactions
+        return this.makeRequest('getTransactions', [
+            publicKey.toString()
+        ], this.config.enhancedApiUrl);
     }
 
     /**
@@ -270,9 +285,10 @@ export class HeliusClient {
      * Make a raw RPC request
      * @param method - RPC method name
      * @param params - RPC parameters
+     * @param baseUrl - Optional base URL (defaults to rpcUrl)
      * @returns RPC response result
      */
-    private async makeRequest(method: string, params: any[]): Promise<any> {
+    private async makeRequest(method: string, params: any[], baseUrl?: string): Promise<any> {
         const requestId = ++this.requestId;
         const requestBody: RpcRequest = {
             jsonrpc: '2.0',
@@ -284,13 +300,14 @@ export class HeliusClient {
         this.logger?.debug(`Request ${requestId}:`, requestBody);
 
         let lastError: Error | undefined;
+        const url = baseUrl || this.config.rpcUrl;
 
         for (let attempt = 1; attempt <= this.config.retries; attempt++) {
             try {
                 let response: Response | undefined;
                 try {
                     response = await Promise.race([
-                        fetch(`${this.config.rpcUrl}?api-key=${this.config.apiKey}`, {
+                        fetch(`${url}?api-key=${this.config.apiKey}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(requestBody),
