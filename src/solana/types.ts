@@ -43,6 +43,15 @@ export interface GetLatestBlockhashOptions {
 }
 
 /**
+ * Options for getting transactions
+ */
+export interface GetTransactionsOptions {
+    limit?: number;
+    before?: string;
+    until?: string;
+}
+
+/**
  * Logger interface for debugging and monitoring
  */
 export interface Logger {
