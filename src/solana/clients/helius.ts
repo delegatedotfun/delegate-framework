@@ -96,13 +96,29 @@ export class HeliusClient {
 
         // Add optional parameters if provided
         if (options.limit !== undefined) {
+            if (options.limit <= 0) {
+                throw new Error('Limit must be greater than 0');
+            }
             url.searchParams.set('limit', options.limit.toString());
         }
+        
         if (options.before !== undefined) {
+            if (!options.before || typeof options.before !== 'string') {
+                throw new Error('Before parameter must be a non-empty string');
+            }
             url.searchParams.set('before', options.before);
         }
+        
         if (options.until !== undefined) {
+            if (!options.until || typeof options.until !== 'string') {
+                throw new Error('Until parameter must be a non-empty string');
+            }
             url.searchParams.set('until', options.until);
+        }
+
+        // Validate that before and until are not used together if they represent conflicting directions
+        if (options.before && options.until) {
+            this.logger?.warn('Both before and until parameters are provided. This may result in unexpected behavior.');
         }
 
         return this.makeRestRequest(url.toString());
@@ -158,12 +174,17 @@ export class HeliusClient {
      * @param publicKey - The public key to get transactions for
      * @param totalLimit - Total number of transactions to fetch
      * @param options - Optional configuration for transaction retrieval
+     * @param batchSize - Number of transactions to fetch per API call (default: 10, max: 100)
      * @returns Transactions up to the specified limit
      */
-    public async getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options: Omit<GetTransactionsOptions, 'before' | 'until'> = {}): Promise<any[]> {
+    public async getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options: Omit<GetTransactionsOptions, 'before' | 'until'> = {}, batchSize: number = 10): Promise<any[]> {
+        if (batchSize <= 0 || batchSize > 100) {
+            throw new Error('Batch size must be between 1 and 100');
+        }
+        
         const transactions: any[] = [];
         let lastSignature: string | null = null;
-        const batchLimit = Math.min(options.limit || 100, totalLimit); // Don't exceed total limit
+        const batchLimit = Math.min(batchSize, totalLimit); // Don't exceed total limit
 
         while (transactions.length < totalLimit) {
             const remainingLimit = totalLimit - transactions.length;

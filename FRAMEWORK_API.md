@@ -184,9 +184,32 @@ Get token account balance.
 Get transactions for a public key (uses enhanced API endpoint).
 
 **Options:**
-- `limit?: number` - Maximum number of transactions to return
-- `before?: string` - Get transactions before this signature
-- `until?: string` - Get transactions until this signature
+- `limit?: number` - Maximum number of transactions to return (must be > 0)
+- `before?: string` - Get transactions **older than** this signature (backward pagination)
+- `until?: string` - Get transactions **up to** this signature (forward pagination)
+
+**Validation:**
+- `limit` must be greater than 0
+- `before` and `until` must be non-empty strings
+- Warning is logged if both `before` and `until` are provided (may cause unexpected behavior)
+
+**Usage Examples:**
+```typescript
+// Get recent transactions
+const recent = await client.getTransactions(publicKey, { limit: 10 });
+
+// Get transactions older than a specific signature
+const older = await client.getTransactions(publicKey, { before: 'signature123' });
+
+// Get transactions up to a specific signature
+const upTo = await client.getTransactions(publicKey, { until: 'signature456' });
+
+// Get transactions in a specific range (use with caution)
+const range = await client.getTransactions(publicKey, { 
+  before: 'signature123', 
+  until: 'signature456' 
+});
+```
 
 ##### getAllTransactions(publicKey: PublicKey, options?: Omit<GetTransactionsOptions, 'before' | 'until'>): Promise<any[]>
 Get all transactions for a public key with automatic pagination.
@@ -200,21 +223,35 @@ Get all transactions for a public key with automatic pagination.
 - Provides logging for batch progress
 - Returns all transactions in a single array
 
-##### getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options?: Omit<GetTransactionsOptions, 'before' | 'until'>): Promise<any[]>
+##### getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options?: Omit<GetTransactionsOptions, 'before' | 'until'>, batchSize?: number): Promise<any[]>
 Get a specific number of transactions for a public key with automatic pagination.
 
 **Parameters:**
 - `totalLimit: number` - Total number of transactions to fetch
+- `batchSize?: number` - Number of transactions to fetch per API call (default: 10, max: 100)
 
 **Options:**
-- `limit?: number` - Batch size for pagination (default: 100, will be capped by totalLimit)
+- Standard transaction options (excluding `before` and `until` for pagination control)
 
 **Features:**
 - Fetches exactly the requested number of transactions (or all available if fewer exist)
-- Automatically handles pagination across multiple batches
-- Optimizes batch sizes to minimize API calls
+- Automatically handles pagination across multiple batches using the `before` parameter
+- Optimizes batch sizes to minimize API calls while respecting the batch size limit
 - Provides logging for batch progress
 - Stops when the total limit is reached or no more transactions are available
+- Validates batch size (must be between 1 and 100)
+
+**Usage Examples:**
+```typescript
+// Get 1000 transactions with default batch size of 10 (100 API calls)
+const transactions = await client.getTransactionsWithLimit(publicKey, 1000);
+
+// Get 1000 transactions with batch size of 50 (20 API calls)
+const transactions = await client.getTransactionsWithLimit(publicKey, 1000, {}, 50);
+
+// Get 100 transactions with batch size of 25 (4 API calls)
+const transactions = await client.getTransactionsWithLimit(publicKey, 100, {}, 25);
+```
 
 #### Example
 ```typescript
@@ -235,7 +272,7 @@ const allTransactions = await client.getAllTransactions(publicKey, { limit: 50 }
 console.log(`Total transactions: ${allTransactions.length}`);
 
 // Get specific number of transactions with pagination
-const limitedTransactions = await client.getTransactionsWithLimit(publicKey, 25, { limit: 10 });
+const limitedTransactions = await client.getTransactionsWithLimit(publicKey, 25, {}, 10);
 console.log(`Fetched ${limitedTransactions.length} transactions`);
 
 // Get recent transactions only (single batch)
