@@ -1,7 +1,7 @@
 import { Transaction, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { throwError } from "../../utils/error-handling";
-import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions } from "../types";
+import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions, GetTransactionsOptions } from "../types";
 
 export class HeliusClient {
     private static readonly DEFAULT_TIMEOUT = 30000;
@@ -88,11 +88,120 @@ export class HeliusClient {
      * @param options - Optional configuration for transaction retrieval
      * @returns Transactions
      */
-    public async getTransactions(publicKey: PublicKey): Promise<any> {
+    public async getTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<any> {
         // Use enhanced API endpoint for getTransactions
-        return this.makeRequest('getTransactions', [
-            publicKey.toString()
-        ], this.config.enhancedApiUrl);
+        const params: any = {
+            query: {
+                accounts: [publicKey.toString()]
+            }
+        };
+
+        // Add optional parameters if provided
+        if (options.limit !== undefined) {
+            params.limit = options.limit;
+        }
+        if (options.before !== undefined) {
+            params.before = options.before;
+        }
+        if (options.until !== undefined) {
+            params.until = options.until;
+        }
+
+        return this.makeRequest('getTransactions', [params], this.config.enhancedApiUrl);
+    }
+
+    /**
+     * Get all transactions for a public key with automatic pagination
+     * @param publicKey - The public key to get all transactions for
+     * @param options - Optional configuration for transaction retrieval
+     * @returns All transactions
+     */
+    public async getAllTransactions(publicKey: PublicKey, options: Omit<GetTransactionsOptions, 'before' | 'until'> = {}): Promise<any[]> {
+        const allTransactions: any[] = [];
+        let lastSignature: string | null = null;
+        const batchLimit = options.limit || 100; // Default batch size
+
+        while (true) {
+            const batchOptions: GetTransactionsOptions = {
+                ...options,
+                limit: batchLimit
+            };
+
+            // Add before parameter for pagination
+            if (lastSignature) {
+                batchOptions.before = lastSignature;
+            }
+
+            const transactions = await this.getTransactions(publicKey, batchOptions);
+
+            if (transactions && transactions.length > 0) {
+                this.logger?.debug(`Fetched batch of ${transactions.length} transactions`);
+                allTransactions.push(...transactions);
+                
+                // Get the last signature for next pagination
+                lastSignature = transactions[transactions.length - 1].signature;
+                
+                // If we got fewer transactions than requested, we've reached the end
+                if (transactions.length < batchLimit) {
+                    break;
+                }
+            } else {
+                this.logger?.debug('No more transactions found');
+                break;
+            }
+        }
+
+        this.logger?.info(`Finished fetching all transactions. Total: ${allTransactions.length}`);
+        return allTransactions;
+    }
+
+    /**
+     * Get a specific number of transactions for a public key with automatic pagination
+     * @param publicKey - The public key to get transactions for
+     * @param totalLimit - Total number of transactions to fetch
+     * @param options - Optional configuration for transaction retrieval
+     * @returns Transactions up to the specified limit
+     */
+    public async getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options: Omit<GetTransactionsOptions, 'before' | 'until'> = {}): Promise<any[]> {
+        const transactions: any[] = [];
+        let lastSignature: string | null = null;
+        const batchLimit = Math.min(options.limit || 100, totalLimit); // Don't exceed total limit
+
+        while (transactions.length < totalLimit) {
+            const remainingLimit = totalLimit - transactions.length;
+            const currentBatchLimit = Math.min(batchLimit, remainingLimit);
+            
+            const batchOptions: GetTransactionsOptions = {
+                ...options,
+                limit: currentBatchLimit
+            };
+
+            // Add before parameter for pagination
+            if (lastSignature) {
+                batchOptions.before = lastSignature;
+            }
+
+            const batchTransactions = await this.getTransactions(publicKey, batchOptions);
+
+            if (batchTransactions && batchTransactions.length > 0) {
+                this.logger?.debug(`Fetched batch of ${batchTransactions.length} transactions (${transactions.length + batchTransactions.length}/${totalLimit})`);
+                transactions.push(...batchTransactions);
+                
+                // Get the last signature for next pagination
+                lastSignature = batchTransactions[batchTransactions.length - 1].signature;
+                
+                // If we got fewer transactions than requested, we've reached the end
+                if (batchTransactions.length < currentBatchLimit) {
+                    break;
+                }
+            } else {
+                this.logger?.debug('No more transactions found');
+                break;
+            }
+        }
+
+        this.logger?.info(`Finished fetching ${transactions.length} transactions (requested: ${totalLimit})`);
+        return transactions;
     }
 
     /**

@@ -254,10 +254,257 @@ describe('HeliusClient', () => {
             jsonrpc: '2.0',
             id: 1,
             method: 'getTransactions',
-            params: ['11111111111111111111111111111111'],
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              }
+            }],
           }),
         })
       );
+    });
+
+    it('should get transactions with limit option', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [{ signature: 'sig1', slot: 12345 }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactions(publicKey, { limit: 10 });
+
+      expect(transactions).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 10
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should get transactions with pagination options', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [{ signature: 'sig2', slot: 12346 }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactions(publicKey, { 
+        limit: 5, 
+        before: 'sig1', 
+        until: 'sig3' 
+      });
+
+      expect(transactions).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 5,
+              before: 'sig1',
+              until: 'sig3'
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should get all transactions with automatic pagination', async () => {
+      // First batch - full page
+      const firstBatch = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [
+          { signature: 'sig1', slot: 12345 },
+          { signature: 'sig2', slot: 12346 },
+          { signature: 'sig3', slot: 12347 }
+        ],
+      };
+
+      // Second batch - partial page (end of data)
+      const secondBatch = {
+        jsonrpc: '2.0',
+        id: 2,
+        result: [
+          { signature: 'sig4', slot: 12348 },
+          { signature: 'sig5', slot: 12349 }
+        ],
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => firstBatch,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => secondBatch,
+        } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const allTransactions = await client.getAllTransactions(publicKey, { limit: 3 });
+
+      expect(allTransactions).toEqual([
+        { signature: 'sig1', slot: 12345 },
+        { signature: 'sig2', slot: 12346 },
+        { signature: 'sig3', slot: 12347 },
+        { signature: 'sig4', slot: 12348 },
+        { signature: 'sig5', slot: 12349 }
+      ]);
+
+      // Verify first call (no before parameter)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 3
+            }],
+          }),
+        })
+      );
+
+      // Verify second call (with before parameter)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        2,
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 3,
+              before: 'sig3'
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should get all transactions with default batch size', async () => {
+      // Single batch with default limit (100)
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [
+          { signature: 'sig1', slot: 12345 },
+          { signature: 'sig2', slot: 12346 }
+        ],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const allTransactions = await client.getAllTransactions(publicKey);
+
+      expect(allTransactions).toEqual([
+        { signature: 'sig1', slot: 12345 },
+        { signature: 'sig2', slot: 12346 }
+      ]);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 100
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should handle empty result in getAllTransactions', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const allTransactions = await client.getAllTransactions(publicKey);
+
+      expect(allTransactions).toEqual([]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle API errors in getAllTransactions', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getAllTransactions(publicKey)).rejects.toThrow('Helius API Error (getTransactions)');
+    });
+
+    it('should handle network errors in getAllTransactions', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getAllTransactions(publicKey)).rejects.toThrow('Helius API Request Failed (getTransactions)');
     });
 
     it('should handle API errors for getTransactions', async () => {
@@ -1731,6 +1978,177 @@ describe('HeliusClient', () => {
       });
 
       expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  describe('getTransactionsWithLimit', () => {
+
+    it('should get specific number of transactions with pagination', async () => {
+      // First batch - full page
+      const firstBatch = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [
+          { signature: 'sig1', slot: 12345 },
+          { signature: 'sig2', slot: 12346 },
+          { signature: 'sig3', slot: 12347 }
+        ],
+      };
+
+      // Second batch - partial page to reach total limit
+      const secondBatch = {
+        jsonrpc: '2.0',
+        id: 2,
+        result: [
+          { signature: 'sig4', slot: 12348 },
+          { signature: 'sig5', slot: 12349 }
+        ],
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => firstBatch,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => secondBatch,
+        } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactionsWithLimit(publicKey, 5, { limit: 3 });
+
+      expect(transactions).toEqual([
+        { signature: 'sig1', slot: 12345 },
+        { signature: 'sig2', slot: 12346 },
+        { signature: 'sig3', slot: 12347 },
+        { signature: 'sig4', slot: 12348 },
+        { signature: 'sig5', slot: 12349 }
+      ]);
+
+      // Verify first call (no before parameter)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 3
+            }],
+          }),
+        })
+      );
+
+      // Verify second call (with before parameter, adjusted batch size)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        2,
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 2,
+              before: 'sig3'
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should get transactions with limit when total is less than batch size', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [
+          { signature: 'sig1', slot: 12345 },
+          { signature: 'sig2', slot: 12346 }
+        ],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactionsWithLimit(publicKey, 2, { limit: 100 });
+
+      expect(transactions).toEqual([
+        { signature: 'sig1', slot: 12345 },
+        { signature: 'sig2', slot: 12346 }
+      ]);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTransactions',
+            params: [{
+              query: {
+                accounts: ['11111111111111111111111111111111']
+              },
+              limit: 2
+            }],
+          }),
+        })
+      );
+    });
+
+    it('should handle empty result in getTransactionsWithLimit', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactionsWithLimit(publicKey, 10);
+
+      expect(transactions).toEqual([]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle API errors in getTransactionsWithLimit', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getTransactionsWithLimit(publicKey, 10)).rejects.toThrow('Helius API Error (getTransactions)');
+    });
+
+    it('should handle network errors in getTransactionsWithLimit', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getTransactionsWithLimit(publicKey, 10)).rejects.toThrow('Helius API Request Failed (getTransactions)');
     });
   });
 }); 
