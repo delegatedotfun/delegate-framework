@@ -49,6 +49,7 @@ describe('HeliusClient', () => {
       const config = defaultClient.getConfig();
       
       expect(config.rpcUrl).toBe('https://mainnet.helius-rpc.com');
+      expect(config.enhancedApiUrl).toBe('https://api.helius.xyz/v0');
       expect(config.timeout).toBe(30000);
       expect(config.retries).toBe(3);
     });
@@ -58,9 +59,20 @@ describe('HeliusClient', () => {
       
       expect(config.apiKey).toBe('test-api-key');
       expect(config.rpcUrl).toBe('https://test.helius-rpc.com');
+      expect(config.enhancedApiUrl).toBe('https://api.helius.xyz/v0');
       expect(config.timeout).toBe(5000);
       expect(config.retries).toBe(2);
       expect(config.logger).toBe(mockLogger);
+    });
+
+    it('should create client with custom enhanced API URL', () => {
+      const customClient = new HeliusClient({
+        apiKey: 'test',
+        enhancedApiUrl: 'https://custom-enhanced-api.helius.xyz/v1'
+      });
+      const config = customClient.getConfig();
+      
+      expect(config.enhancedApiUrl).toBe('https://custom-enhanced-api.helius.xyz/v1');
     });
   });
 
@@ -212,6 +224,87 @@ describe('HeliusClient', () => {
           }),
         })
       );
+    });
+  });
+
+  describe('getTransactions', () => {
+    it('should successfully get transactions using enhanced API endpoint', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [
+          { signature: 'sig1', slot: 12345 },
+          { signature: 'sig2', slot: 12346 }
+        ],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactions(publicKey);
+
+      expect(transactions).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.helius.xyz/v0?api-key=test-api-key',
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTransactions',
+            params: ['11111111111111111111111111111111'],
+          }),
+        })
+      );
+    });
+
+    it('should handle API errors for getTransactions', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32601, message: 'Method not found' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getTransactions(publicKey)).rejects.toThrow('Helius API Error (getTransactions)');
+    });
+
+    it('should handle network errors for getTransactions', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+
+      await expect(client.getTransactions(publicKey)).rejects.toThrow('Helius API Request Failed (getTransactions)');
+    });
+
+    it('should retry on getTransactions failure', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: [{ signature: 'sig1', slot: 12345 }],
+      };
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactions(publicKey);
+
+      expect(transactions).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 

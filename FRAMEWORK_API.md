@@ -144,6 +144,7 @@ new HeliusClient(config: HeliusConfig)
 interface HeliusConfig {
   apiKey: string;           // Required: Helius API key
   rpcUrl?: string;          // Optional: Custom RPC URL
+  enhancedApiUrl?: string;  // Optional: Enhanced API URL for specific endpoints (default: https://api.helius.xyz/v0)
   timeout?: number;         // Optional: Request timeout (default: 30000ms)
   retries?: number;         // Optional: Retry attempts (default: 3)
   logger?: Logger;          // Optional: Logger instance
@@ -178,6 +179,9 @@ Get all token accounts for a public key.
 
 ##### getTokenAccountBalance(publicKey: PublicKey): Promise<any>
 Get token account balance.
+
+##### getTransactions(publicKey: PublicKey): Promise<any>
+Get transactions for a public key (uses enhanced API endpoint).
 
 #### Example
 ```typescript

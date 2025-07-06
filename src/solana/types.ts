@@ -7,6 +7,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 export interface HeliusConfig {
     apiKey: string;
     rpcUrl?: string;
+    enhancedApiUrl?: string;
     timeout?: number;
     retries?: number;
     logger?: Logger;
