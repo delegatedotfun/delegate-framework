@@ -89,25 +89,23 @@ export class HeliusClient {
      * @returns Transactions
      */
     public async getTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<any> {
-        // Use enhanced API endpoint for getTransactions
-        const params: any = {
-            query: {
-                accounts: [publicKey.toString()]
-            }
-        };
+        // Build URL with query parameters
+        const baseUrl = this.config.enhancedApiUrl.replace(/\/$/, ''); // Remove trailing slash if present
+        const url = new URL(`${baseUrl}/addresses/${publicKey.toString()}/transactions`);
+        url.searchParams.set('api-key', this.config.apiKey);
 
         // Add optional parameters if provided
         if (options.limit !== undefined) {
-            params.limit = options.limit;
+            url.searchParams.set('limit', options.limit.toString());
         }
         if (options.before !== undefined) {
-            params.before = options.before;
+            url.searchParams.set('before', options.before);
         }
         if (options.until !== undefined) {
-            params.until = options.until;
+            url.searchParams.set('until', options.until);
         }
 
-        return this.makeRequest('getTransactions', [params], this.config.enhancedApiUrl);
+        return this.makeRestRequest(url.toString());
     }
 
     /**
@@ -485,5 +483,72 @@ export class HeliusClient {
      */
     public getConfig(): Readonly<Omit<Required<HeliusConfig>, 'logger'> & { logger?: Logger }> {
         return this.config;
+    }
+
+    /**
+     * Make a REST API request (for non-JSON-RPC endpoints)
+     * @param url - Full URL to request
+     * @returns Response data
+     */
+    private async makeRestRequest(url: string): Promise<any> {
+        const requestId = ++this.requestId;
+
+        this.logger?.debug(`REST Request ${requestId}: ${url}`);
+
+        let lastError: Error | undefined;
+
+        for (let attempt = 1; attempt <= this.config.retries; attempt++) {
+            try {
+                let response: Response | undefined;
+                try {
+                    response = await Promise.race([
+                        fetch(url, {
+                            method: 'GET',
+                            headers: { 'Content-Type': 'application/json' },
+                            signal: AbortSignal.timeout(this.config.timeout),
+                        }),
+                        new Promise<never>((_, reject) =>
+                            setTimeout(() => reject(new Error(`Operation timed out after ${this.config.timeout}ms`)), this.config.timeout)
+                        ),
+                    ]);
+                } catch (error) {
+                    // Network error or timeout
+                    throw new Error(`Network Error: ${error instanceof Error ? error.message : String(error)}`);
+                }
+
+                if (!response || !('ok' in response)) {
+                    throw new Error('Network Error: No response received from fetch');
+                }
+
+                if (!response.ok) {
+                    throw new Error(`Network Error: HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                this.logger?.debug(`REST Response ${requestId}:`, data);
+
+                return data;
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                this.logger?.warn(`REST Request ${requestId} attempt ${attempt} failed:`, lastError);
+
+                // Only retry on network errors or timeouts
+                const isTimeout = /timed out/i.test(lastError.message);
+                const isNetwork = /network|fetch|Failed to fetch|TypeError|No response received/i.test(lastError.message);
+                if (!isTimeout && !isNetwork) {
+                    this.logger?.error(`REST Request ${requestId} failed after ${attempt} attempts:`, lastError);
+                    throw lastError;
+                }
+
+                if (attempt === this.config.retries) {
+                    this.logger?.error(`REST Request ${requestId} failed after ${attempt} attempts:`, lastError);
+                    throw new Error(`Network Error: ${lastError.message}`);
+                }
+
+                await this.delay(Math.pow(2, attempt - 1) * 1000);
+            }
+        }
+
+        throw lastError!;
     }
 }
