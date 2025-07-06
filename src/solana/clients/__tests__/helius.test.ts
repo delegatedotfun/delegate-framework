@@ -2201,5 +2201,73 @@ describe('HeliusClient', () => {
         })
       );
     });
+
+    it('should handle real-world pagination scenario with limited available transactions', async () => {
+      // Simulate a wallet with only 296 transactions available
+      const availableTransactions = 296;
+      const requestedLimit = 10000;
+      const batchSize = 100;
+      const numBatches = Math.ceil(availableTransactions / batchSize); // 3 batches: 100, 100, 96
+      
+      // Create mock responses for each batch
+      for (let i = 0; i < numBatches; i++) {
+        const startIndex = i * batchSize;
+        const endIndex = Math.min(startIndex + batchSize, availableTransactions);
+        const batchSizeActual = endIndex - startIndex;
+        
+        const batchTransactions = Array.from({ length: batchSizeActual }, (_, j) => ({
+          signature: `sig${startIndex + j + 1}`,
+          slot: 12345 + startIndex + j
+        }));
+
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => batchTransactions,
+        } as Response);
+      }
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const transactions = await client.getTransactionsWithLimit(publicKey, requestedLimit, {}, batchSize);
+
+      // Verify we got all available transactions (296), not the requested limit (10000)
+      expect(transactions).toHaveLength(availableTransactions);
+      
+      // Verify the first and last transactions
+      expect(transactions[0]).toEqual({ signature: 'sig1', slot: 12345 });
+      expect(transactions[availableTransactions - 1]).toEqual({ signature: `sig${availableTransactions}`, slot: 12345 + availableTransactions - 1 });
+
+      // Verify the number of API calls made (should be 3, not more)
+      expect(mockFetch).toHaveBeenCalledTimes(numBatches);
+
+      // Verify the first call (no before parameter)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=100',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+
+      // Verify the second call (with before parameter)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        2,
+        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=100&before=sig100',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+
+      // Verify the third call (final batch, requests 100 but gets 96)
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        3,
+        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=100&before=sig200',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+    });
   });
 }); 

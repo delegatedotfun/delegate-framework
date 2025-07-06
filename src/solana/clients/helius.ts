@@ -184,11 +184,12 @@ export class HeliusClient {
         
         const transactions: any[] = [];
         let lastSignature: string | null = null;
-        const batchLimit = Math.min(batchSize, totalLimit); // Don't exceed total limit
+        let batchCount = 0;
 
         while (transactions.length < totalLimit) {
+            batchCount++;
             const remainingLimit = totalLimit - transactions.length;
-            const currentBatchLimit = Math.min(batchLimit, remainingLimit);
+            const currentBatchLimit = Math.min(batchSize, remainingLimit);
             
             const batchOptions: GetTransactionsOptions = {
                 ...options,
@@ -203,7 +204,6 @@ export class HeliusClient {
             const batchTransactions = await this.getTransactions(publicKey, batchOptions);
 
             if (batchTransactions && batchTransactions.length > 0) {
-                this.logger?.debug(`Fetched batch of ${batchTransactions.length} transactions (${transactions.length + batchTransactions.length}/${totalLimit})`);
                 transactions.push(...batchTransactions);
                 
                 // Get the last signature for next pagination
@@ -214,12 +214,10 @@ export class HeliusClient {
                     break;
                 }
             } else {
-                this.logger?.debug('No more transactions found');
                 break;
             }
         }
 
-        this.logger?.info(`Finished fetching ${transactions.length} transactions (requested: ${totalLimit})`);
         return transactions;
     }
 
