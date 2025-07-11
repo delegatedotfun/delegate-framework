@@ -197,16 +197,18 @@ export class HeliusClient {
                 // Forward pagination: use 'after' parameter for subsequent batches
                 if (paginationSignature) {
                     batchOptions.after = paginationSignature;
-                    // Remove initial after/since to avoid conflicts
+                    // Remove the original since parameter for subsequent batches
                     delete batchOptions.since;
                 }
+                // For the first batch, keep the original 'after' or 'since' parameter
             } else if (isBackwardPagination) {
                 // Backward pagination: use 'before' parameter for subsequent batches
                 if (paginationSignature) {
                     batchOptions.before = paginationSignature;
-                    // Remove initial before/until to avoid conflicts
+                    // Remove the original until parameter for subsequent batches
                     delete batchOptions.until;
                 }
+                // For the first batch, keep the original 'before' or 'until' parameter
             } else {
                 // Default backward pagination (existing behavior)
                 if (lastSignature) {
@@ -290,16 +292,18 @@ export class HeliusClient {
                 // Forward pagination: use 'after' parameter for subsequent batches
                 if (paginationSignature) {
                     batchOptions.after = paginationSignature;
-                    // Remove initial after/since to avoid conflicts
+                    // Remove the original since parameter for subsequent batches
                     delete batchOptions.since;
                 }
+                // For the first batch, keep the original 'after' or 'since' parameter
             } else if (isBackwardPagination) {
                 // Backward pagination: use 'before' parameter for subsequent batches
                 if (paginationSignature) {
                     batchOptions.before = paginationSignature;
-                    // Remove initial before/until to avoid conflicts
+                    // Remove the original until parameter for subsequent batches
                     delete batchOptions.until;
                 }
+                // For the first batch, keep the original 'before' or 'until' parameter
             } else {
                 // Default backward pagination (existing behavior)
                 if (lastSignature) {
