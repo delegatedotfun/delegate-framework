@@ -1,6 +1,6 @@
 {
   "name": "delegate-framework",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "A TypeScript framework for building robust, production-ready blockchain workflows with comprehensive error handling, logging, and testing. Maintained by delegate.fun",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
