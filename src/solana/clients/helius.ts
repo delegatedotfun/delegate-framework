@@ -1,7 +1,7 @@
-import { Transaction, PublicKey } from "@solana/web3.js";
+import { Transaction as SolanaTransaction, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { throwError } from "../../utils/error-handling";
-import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions, GetTransactionsOptions } from "../types";
+import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions, GetTransactionsOptions, Transaction } from "../types";
 
 export class HeliusClient {
     private static readonly DEFAULT_TIMEOUT = 30000;
@@ -31,7 +31,7 @@ export class HeliusClient {
      * @returns Transaction signature
      */
     public async sendTransaction(
-        transaction: Transaction, 
+        transaction: SolanaTransaction, 
         options: SendTransactionOptions = {}
     ): Promise<string> {
         return this.makeRequest('sendTransaction', [
@@ -86,9 +86,9 @@ export class HeliusClient {
      * Get transactions for a public key
      * @param publicKey - The public key to get transactions for
      * @param options - Optional configuration for transaction retrieval
-     * @returns Transactions
+     * @returns Array of Transaction objects
      */
-    public async getTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<any> {
+    public async getTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<Transaction[]> {
         // Build URL with query parameters
         const baseUrl = this.config.enhancedApiUrl.replace(/\/$/, ''); // Remove trailing slash if present
         const url = new URL(`${baseUrl}/addresses/${publicKey.toString()}/transactions`);
@@ -171,10 +171,10 @@ export class HeliusClient {
      * Get all transactions for a public key with automatic pagination
      * @param publicKey - The public key to get all transactions for
      * @param options - Optional configuration for transaction retrieval (supports all pagination parameters)
-     * @returns All transactions
+     * @returns Array of all Transaction objects
      */
-    public async getAllTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<any[]> {
-        const allTransactions: any[] = [];
+    public async getAllTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<Transaction[]> {
+        const allTransactions: Transaction[] = [];
         let lastSignature: string | null = null;
         const batchLimit = options.limit || 100; // Default batch size
 
@@ -223,11 +223,17 @@ export class HeliusClient {
                 // Update pagination signature based on direction
                 if (isForwardPagination) {
                     // For forward pagination, use the latest signature for next batch
-                    paginationSignature = transactions[transactions.length - 1].signature;
+                    const lastTransaction = transactions[transactions.length - 1];
+                    if (lastTransaction) {
+                        paginationSignature = lastTransaction.signature;
+                    }
                 } else {
                     // For backward pagination, use the oldest signature for next batch
-                    paginationSignature = transactions[transactions.length - 1].signature;
-                    lastSignature = paginationSignature; // Keep for backward compatibility
+                    const lastTransaction = transactions[transactions.length - 1];
+                    if (lastTransaction) {
+                        paginationSignature = lastTransaction.signature;
+                        lastSignature = paginationSignature; // Keep for backward compatibility
+                    }
                 }
                 
                 // If we got fewer transactions than requested, we've reached the end
@@ -250,14 +256,14 @@ export class HeliusClient {
      * @param totalLimit - Total number of transactions to fetch
      * @param options - Optional configuration for transaction retrieval (supports all pagination parameters)
      * @param batchSize - Number of transactions to fetch per API call (default: 10, max: 100)
-     * @returns Transactions up to the specified limit
+     * @returns Array of Transaction objects up to the specified limit
      */
-    public async getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options: GetTransactionsOptions = {}, batchSize: number = 10): Promise<any[]> {
+    public async getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options: GetTransactionsOptions = {}, batchSize: number = 10): Promise<Transaction[]> {
         if (batchSize <= 0 || batchSize > 100) {
             throw new Error('Batch size must be between 1 and 100');
         }
         
-        const transactions: any[] = [];
+        const transactions: Transaction[] = [];
         let lastSignature: string | null = null;
         let batchCount = 0;
 
@@ -309,11 +315,17 @@ export class HeliusClient {
                 // Update pagination signature based on direction
                 if (isForwardPagination) {
                     // For forward pagination, use the latest signature for next batch
-                    paginationSignature = batchTransactions[batchTransactions.length - 1].signature;
+                    const lastTransaction = batchTransactions[batchTransactions.length - 1];
+                    if (lastTransaction) {
+                        paginationSignature = lastTransaction.signature;
+                    }
                 } else {
                     // For backward pagination, use the oldest signature for next batch
-                    paginationSignature = batchTransactions[batchTransactions.length - 1].signature;
-                    lastSignature = paginationSignature; // Keep for backward compatibility
+                    const lastTransaction = batchTransactions[batchTransactions.length - 1];
+                    if (lastTransaction) {
+                        paginationSignature = lastTransaction.signature;
+                        lastSignature = paginationSignature; // Keep for backward compatibility
+                    }
                 }
                 
                 // If we got fewer transactions than requested, we've reached the end
@@ -495,7 +507,7 @@ export class HeliusClient {
      * @param transaction - The transaction to simulate
      * @returns Simulation result
      */
-    public async simulateTransaction(transaction: Transaction): Promise<any> {
+    public async simulateTransaction(transaction: SolanaTransaction): Promise<any> {
         return this.makeRequest('simulateTransaction', [
             bs58.encode(transaction.serialize({ requireAllSignatures: false })),
         ]);

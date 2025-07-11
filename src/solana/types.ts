@@ -2,6 +2,29 @@ import { QuoteResponse } from "@jup-ag/api";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 /**
+ * Represents a single transfer within a transaction
+ */
+export interface Transfer {
+  fromUserAccount: string;
+  toUserAccount: string;
+  amount?: number;
+  tokenAmount?: number;
+  mint?: string;
+}
+
+/**
+ * Represents a complete Solana transaction with transfers
+ */
+export interface Transaction {
+  signature: string;
+  slot: number;
+  timestamp: number;
+  description: string;
+  nativeTransfers: Transfer[];
+  tokenTransfers: Transfer[];
+}
+
+/**
  * Configuration interface for HeliusClient
  */
 export interface HeliusConfig {
