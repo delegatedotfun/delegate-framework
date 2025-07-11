@@ -186,23 +186,33 @@ Get transactions for a public key (uses enhanced API endpoint).
 **Options:**
 - `limit?: number` - Maximum number of transactions to return (must be > 0)
 - `before?: string` - Get transactions **older than** this signature (backward pagination)
-- `until?: string` - Get transactions **up to** this signature (forward pagination)
+- `after?: string` - Get transactions **newer than** this signature (forward pagination)
+- `until?: string` - Get transactions **up to** this signature (exclusive, backward pagination)
+- `since?: string` - Get transactions **since** this signature (inclusive, forward pagination)
 
 **Validation:**
 - `limit` must be greater than 0
-- `before` and `until` must be non-empty strings
-- Warning is logged if both `before` and `until` are provided (may cause unexpected behavior)
+- All pagination parameters must be non-empty strings
+- Cannot mix backward pagination (`before`/`until`) with forward pagination (`after`/`since`)
+- Cannot use conflicting parameters (`before` with `after`, `until` with `since`)
+- Warnings are logged for potentially conflicting parameter combinations
 
 **Usage Examples:**
 ```typescript
 // Get recent transactions
 const recent = await client.getTransactions(publicKey, { limit: 10 });
 
-// Get transactions older than a specific signature
+// Backward pagination - get transactions older than a specific signature
 const older = await client.getTransactions(publicKey, { before: 'signature123' });
 
-// Get transactions up to a specific signature
+// Forward pagination - get transactions newer than a specific signature
+const newer = await client.getTransactions(publicKey, { after: 'signature123' });
+
+// Get transactions up to a specific signature (exclusive)
 const upTo = await client.getTransactions(publicKey, { until: 'signature456' });
+
+// Get transactions since a specific signature (inclusive)
+const since = await client.getTransactions(publicKey, { since: 'signature456' });
 
 // Get transactions in a specific range (use with caution)
 const range = await client.getTransactions(publicKey, { 
@@ -211,19 +221,39 @@ const range = await client.getTransactions(publicKey, {
 });
 ```
 
-##### getAllTransactions(publicKey: PublicKey, options?: Omit<GetTransactionsOptions, 'before' | 'until'>): Promise<any[]>
+##### getAllTransactions(publicKey: PublicKey, options?: GetTransactionsOptions): Promise<any[]>
 Get all transactions for a public key with automatic pagination.
 
 **Options:**
+- All standard transaction options including pagination parameters
 - `limit?: number` - Batch size for pagination (default: 100)
 
 **Features:**
 - Automatically handles pagination using the last signature from each batch
+- Supports both forward and backward pagination
 - Continues fetching until no more transactions are available
 - Provides logging for batch progress
 - Returns all transactions in a single array
 
-##### getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options?: Omit<GetTransactionsOptions, 'before' | 'until'>, batchSize?: number): Promise<any[]>
+**Usage Examples:**
+```typescript
+// Get all transactions (backward pagination)
+const allTransactions = await client.getAllTransactions(publicKey, { limit: 50 });
+
+// Get all transactions since a specific signature (forward pagination)
+const newTransactions = await client.getAllTransactions(publicKey, { 
+  since: 'lastProcessedSignature',
+  limit: 50 
+});
+
+// Get all transactions after a specific signature (forward pagination)
+const newerTransactions = await client.getAllTransactions(publicKey, { 
+  after: 'lastProcessedSignature',
+  limit: 50 
+});
+```
+
+##### getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options?: GetTransactionsOptions, batchSize?: number): Promise<any[]>
 Get a specific number of transactions for a public key with automatic pagination.
 
 **Parameters:**
@@ -231,11 +261,12 @@ Get a specific number of transactions for a public key with automatic pagination
 - `batchSize?: number` - Number of transactions to fetch per API call (default: 10, max: 100)
 
 **Options:**
-- Standard transaction options (excluding `before` and `until` for pagination control)
+- All standard transaction options including pagination parameters
 
 **Features:**
 - Fetches exactly the requested number of transactions (or all available if fewer exist)
-- Automatically handles pagination across multiple batches using the `before` parameter
+- Automatically handles pagination across multiple batches
+- Supports both forward and backward pagination
 - Optimizes batch sizes to minimize API calls while respecting the batch size limit
 - Provides logging for batch progress
 - Stops when the total limit is reached or no more transactions are available
@@ -251,6 +282,22 @@ const transactions = await client.getTransactionsWithLimit(publicKey, 1000, {}, 
 
 // Get 100 transactions with batch size of 25 (4 API calls)
 const transactions = await client.getTransactionsWithLimit(publicKey, 100, {}, 25);
+
+// Incremental update - only fetch newer transactions
+const newTransactions = await client.getTransactionsWithLimit(
+  publicKey, 
+  1000, 
+  { after: 'latestSignature' }, 
+  50
+);
+
+// Get transactions since a specific signature
+const recentTransactions = await client.getTransactionsWithLimit(
+  publicKey, 
+  1000, 
+  { since: 'lastProcessedSignature' }, 
+  50
+);
 ```
 
 #### Example
@@ -274,6 +321,15 @@ console.log(`Total transactions: ${allTransactions.length}`);
 // Get specific number of transactions with pagination
 const limitedTransactions = await client.getTransactionsWithLimit(publicKey, 25, {}, 10);
 console.log(`Fetched ${limitedTransactions.length} transactions`);
+
+// Incremental update - only fetch newer transactions
+const newTransactions = await client.getTransactionsWithLimit(
+  publicKey, 
+  1000, 
+  { after: 'latestSignature' }, 
+  50
+);
+console.log(`Fetched ${newTransactions.length} new transactions`);
 
 // Get recent transactions only (single batch)
 const recentTransactions = await client.getTransactions(publicKey, { limit: 10 });

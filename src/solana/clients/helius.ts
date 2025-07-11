@@ -109,31 +109,82 @@ export class HeliusClient {
             url.searchParams.set('before', options.before);
         }
         
+        if (options.after !== undefined) {
+            if (!options.after || typeof options.after !== 'string') {
+                throw new Error('After parameter must be a non-empty string');
+            }
+            url.searchParams.set('after', options.after);
+        }
+        
         if (options.until !== undefined) {
             if (!options.until || typeof options.until !== 'string') {
                 throw new Error('Until parameter must be a non-empty string');
             }
             url.searchParams.set('until', options.until);
         }
-
-        // Validate that before and until are not used together if they represent conflicting directions
-        if (options.before && options.until) {
-            this.logger?.warn('Both before and until parameters are provided. This may result in unexpected behavior.');
+        
+        if (options.since !== undefined) {
+            if (!options.since || typeof options.since !== 'string') {
+                throw new Error('Since parameter must be a non-empty string');
+            }
+            url.searchParams.set('since', options.since);
         }
+
+        // Validate parameter combinations
+        this.validatePaginationParameters(options);
 
         return this.makeRestRequest(url.toString());
     }
 
     /**
+     * Validate pagination parameter combinations
+     * @param options - The pagination options to validate
+     * @private
+     */
+    private validatePaginationParameters(options: GetTransactionsOptions): void {
+        // Check for conflicting backward pagination parameters
+        if (options.before && options.until) {
+            this.logger?.warn('Both before and until parameters are provided. This may result in unexpected behavior.');
+        }
+
+        // Check for conflicting forward pagination parameters
+        if (options.after && options.since) {
+            this.logger?.warn('Both after and since parameters are provided. This may result in unexpected behavior.');
+        }
+
+        // Validate logical combinations first
+        if (options.before && options.after) {
+            throw new Error('Cannot use both before and after parameters together');
+        }
+
+        if (options.until && options.since) {
+            throw new Error('Cannot use both until and since parameters together');
+        }
+
+        // Check for mixed pagination directions (backward + forward)
+        if ((options.before || options.until) && (options.after || options.since)) {
+            throw new Error('Cannot mix backward pagination (before/until) with forward pagination (after/since) parameters');
+        }
+    }
+
+    /**
      * Get all transactions for a public key with automatic pagination
      * @param publicKey - The public key to get all transactions for
-     * @param options - Optional configuration for transaction retrieval
+     * @param options - Optional configuration for transaction retrieval (supports all pagination parameters)
      * @returns All transactions
      */
-    public async getAllTransactions(publicKey: PublicKey, options: Omit<GetTransactionsOptions, 'before' | 'until'> = {}): Promise<any[]> {
+    public async getAllTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<any[]> {
         const allTransactions: any[] = [];
         let lastSignature: string | null = null;
         const batchLimit = options.limit || 100; // Default batch size
+
+        // Determine pagination direction and initial parameters
+        const isForwardPagination = !!(options.after || options.since);
+        const isBackwardPagination = !!(options.before || options.until);
+        
+        // For forward pagination, we need to track the latest signature for next batch
+        // For backward pagination, we track the oldest signature for next batch
+        let paginationSignature: string | null = null;
 
         while (true) {
             const batchOptions: GetTransactionsOptions = {
@@ -141,9 +192,26 @@ export class HeliusClient {
                 limit: batchLimit
             };
 
-            // Add before parameter for pagination
-            if (lastSignature) {
-                batchOptions.before = lastSignature;
+            // Handle pagination based on direction
+            if (isForwardPagination) {
+                // Forward pagination: use 'after' parameter for subsequent batches
+                if (paginationSignature) {
+                    batchOptions.after = paginationSignature;
+                    // Remove initial after/since to avoid conflicts
+                    delete batchOptions.since;
+                }
+            } else if (isBackwardPagination) {
+                // Backward pagination: use 'before' parameter for subsequent batches
+                if (paginationSignature) {
+                    batchOptions.before = paginationSignature;
+                    // Remove initial before/until to avoid conflicts
+                    delete batchOptions.until;
+                }
+            } else {
+                // Default backward pagination (existing behavior)
+                if (lastSignature) {
+                    batchOptions.before = lastSignature;
+                }
             }
 
             const transactions = await this.getTransactions(publicKey, batchOptions);
@@ -152,8 +220,15 @@ export class HeliusClient {
                 this.logger?.debug(`Fetched batch of ${transactions.length} transactions`);
                 allTransactions.push(...transactions);
                 
-                // Get the last signature for next pagination
-                lastSignature = transactions[transactions.length - 1].signature;
+                // Update pagination signature based on direction
+                if (isForwardPagination) {
+                    // For forward pagination, use the latest signature for next batch
+                    paginationSignature = transactions[transactions.length - 1].signature;
+                } else {
+                    // For backward pagination, use the oldest signature for next batch
+                    paginationSignature = transactions[transactions.length - 1].signature;
+                    lastSignature = paginationSignature; // Keep for backward compatibility
+                }
                 
                 // If we got fewer transactions than requested, we've reached the end
                 if (transactions.length < batchLimit) {
@@ -173,11 +248,11 @@ export class HeliusClient {
      * Get a specific number of transactions for a public key with automatic pagination
      * @param publicKey - The public key to get transactions for
      * @param totalLimit - Total number of transactions to fetch
-     * @param options - Optional configuration for transaction retrieval
+     * @param options - Optional configuration for transaction retrieval (supports all pagination parameters)
      * @param batchSize - Number of transactions to fetch per API call (default: 10, max: 100)
      * @returns Transactions up to the specified limit
      */
-    public async getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options: Omit<GetTransactionsOptions, 'before' | 'until'> = {}, batchSize: number = 10): Promise<any[]> {
+    public async getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options: GetTransactionsOptions = {}, batchSize: number = 10): Promise<any[]> {
         if (batchSize <= 0 || batchSize > 100) {
             throw new Error('Batch size must be between 1 and 100');
         }
@@ -185,6 +260,14 @@ export class HeliusClient {
         const transactions: any[] = [];
         let lastSignature: string | null = null;
         let batchCount = 0;
+
+        // Determine pagination direction and initial parameters
+        const isForwardPagination = !!(options.after || options.since);
+        const isBackwardPagination = !!(options.before || options.until);
+        
+        // For forward pagination, we need to track the latest signature for next batch
+        // For backward pagination, we track the oldest signature for next batch
+        let paginationSignature: string | null = null;
 
         while (transactions.length < totalLimit) {
             batchCount++;
@@ -196,9 +279,26 @@ export class HeliusClient {
                 limit: currentBatchLimit
             };
 
-            // Add before parameter for pagination
-            if (lastSignature) {
-                batchOptions.before = lastSignature;
+            // Handle pagination based on direction
+            if (isForwardPagination) {
+                // Forward pagination: use 'after' parameter for subsequent batches
+                if (paginationSignature) {
+                    batchOptions.after = paginationSignature;
+                    // Remove initial after/since to avoid conflicts
+                    delete batchOptions.since;
+                }
+            } else if (isBackwardPagination) {
+                // Backward pagination: use 'before' parameter for subsequent batches
+                if (paginationSignature) {
+                    batchOptions.before = paginationSignature;
+                    // Remove initial before/until to avoid conflicts
+                    delete batchOptions.until;
+                }
+            } else {
+                // Default backward pagination (existing behavior)
+                if (lastSignature) {
+                    batchOptions.before = lastSignature;
+                }
             }
 
             const batchTransactions = await this.getTransactions(publicKey, batchOptions);
@@ -206,8 +306,15 @@ export class HeliusClient {
             if (batchTransactions && batchTransactions.length > 0) {
                 transactions.push(...batchTransactions);
                 
-                // Get the last signature for next pagination
-                lastSignature = batchTransactions[batchTransactions.length - 1].signature;
+                // Update pagination signature based on direction
+                if (isForwardPagination) {
+                    // For forward pagination, use the latest signature for next batch
+                    paginationSignature = batchTransactions[batchTransactions.length - 1].signature;
+                } else {
+                    // For backward pagination, use the oldest signature for next batch
+                    paginationSignature = batchTransactions[batchTransactions.length - 1].signature;
+                    lastSignature = paginationSignature; // Keep for backward compatibility
+                }
                 
                 // If we got fewer transactions than requested, we've reached the end
                 if (batchTransactions.length < currentBatchLimit) {

@@ -47,8 +47,10 @@ export interface GetLatestBlockhashOptions {
  */
 export interface GetTransactionsOptions {
     limit?: number;
-    before?: string;
-    until?: string;
+    before?: string;  // Fetch transactions before this signature (backward pagination)
+    after?: string;   // Fetch transactions after this signature (forward pagination)
+    until?: string;   // Fetch transactions until this signature (exclusive)
+    since?: string;   // Fetch transactions since this signature (inclusive)
 }
 
 /**
