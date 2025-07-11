@@ -186,16 +186,12 @@ Get transactions for a public key (uses enhanced API endpoint).
 **Options:**
 - `limit?: number` - Maximum number of transactions to return (must be > 0)
 - `before?: string` - Get transactions **older than** this signature (backward pagination)
-- `after?: string` - Get transactions **newer than** this signature (forward pagination)
 - `until?: string` - Get transactions **up to** this signature (exclusive, backward pagination)
-- `since?: string` - Get transactions **since** this signature (inclusive, forward pagination)
 
 **Validation:**
 - `limit` must be greater than 0
 - All pagination parameters must be non-empty strings
-- Cannot mix backward pagination (`before`/`until`) with forward pagination (`after`/`since`)
-- Cannot use conflicting parameters (`before` with `after`, `until` with `since`)
-- Warnings are logged for potentially conflicting parameter combinations
+- Warning is logged if both `before` and `until` are provided (may cause unexpected behavior)
 
 **Usage Examples:**
 ```typescript
@@ -205,14 +201,8 @@ const recent = await client.getTransactions(publicKey, { limit: 10 });
 // Backward pagination - get transactions older than a specific signature
 const older = await client.getTransactions(publicKey, { before: 'signature123' });
 
-// Forward pagination - get transactions newer than a specific signature
-const newer = await client.getTransactions(publicKey, { after: 'signature123' });
-
 // Get transactions up to a specific signature (exclusive)
 const upTo = await client.getTransactions(publicKey, { until: 'signature456' });
-
-// Get transactions since a specific signature (inclusive)
-const since = await client.getTransactions(publicKey, { since: 'signature456' });
 
 // Get transactions in a specific range (use with caution)
 const range = await client.getTransactions(publicKey, { 
@@ -220,6 +210,8 @@ const range = await client.getTransactions(publicKey, {
   until: 'signature456' 
 });
 ```
+
+> **Note:** The Helius API only supports backward pagination using `before` and `until`. Forward pagination (fetching transactions newer than a signature) is not supported. For incremental updates, fetch the latest transactions and filter client-side.
 
 ##### getAllTransactions(publicKey: PublicKey, options?: GetTransactionsOptions): Promise<any[]>
 Get all transactions for a public key with automatic pagination.
@@ -230,7 +222,7 @@ Get all transactions for a public key with automatic pagination.
 
 **Features:**
 - Automatically handles pagination using the last signature from each batch
-- Supports both forward and backward pagination
+- Only supports backward pagination (older transactions)
 - Continues fetching until no more transactions are available
 - Provides logging for batch progress
 - Returns all transactions in a single array
@@ -240,18 +232,11 @@ Get all transactions for a public key with automatic pagination.
 // Get all transactions (backward pagination)
 const allTransactions = await client.getAllTransactions(publicKey, { limit: 50 });
 
-// Get all transactions since a specific signature (forward pagination)
-const newTransactions = await client.getAllTransactions(publicKey, { 
-  since: 'lastProcessedSignature',
-  limit: 50 
-});
-
-// Get all transactions after a specific signature (forward pagination)
-const newerTransactions = await client.getAllTransactions(publicKey, { 
-  after: 'lastProcessedSignature',
-  limit: 50 
-});
+// Get all transactions up to a specific signature
+const upTo = await client.getAllTransactions(publicKey, { until: 'signature456', limit: 50 });
 ```
+
+> **Note:** The Helius API only supports backward pagination using `before` and `until`. Forward pagination (fetching transactions newer than a signature) is not supported. For incremental updates, fetch the latest transactions and filter client-side.
 
 ##### getTransactionsWithLimit(publicKey: PublicKey, totalLimit: number, options?: GetTransactionsOptions, batchSize?: number): Promise<any[]>
 Get a specific number of transactions for a public key with automatic pagination.
@@ -266,7 +251,7 @@ Get a specific number of transactions for a public key with automatic pagination
 **Features:**
 - Fetches exactly the requested number of transactions (or all available if fewer exist)
 - Automatically handles pagination across multiple batches
-- Supports both forward and backward pagination
+- Only supports backward pagination (older transactions)
 - Optimizes batch sizes to minimize API calls while respecting the batch size limit
 - Provides logging for batch progress
 - Stops when the total limit is reached or no more transactions are available
@@ -283,22 +268,11 @@ const transactions = await client.getTransactionsWithLimit(publicKey, 1000, {}, 
 // Get 100 transactions with batch size of 25 (4 API calls)
 const transactions = await client.getTransactionsWithLimit(publicKey, 100, {}, 25);
 
-// Incremental update - only fetch newer transactions
-const newTransactions = await client.getTransactionsWithLimit(
-  publicKey, 
-  1000, 
-  { after: 'latestSignature' }, 
-  50
-);
-
-// Get transactions since a specific signature
-const recentTransactions = await client.getTransactionsWithLimit(
-  publicKey, 
-  1000, 
-  { since: 'lastProcessedSignature' }, 
-  50
-);
+// Get transactions up to a specific signature
+const upTo = await client.getTransactionsWithLimit(publicKey, 100, { until: 'signature456' }, 50);
 ```
+
+> **Note:** The Helius API only supports backward pagination using `before` and `until`. Forward pagination (fetching transactions newer than a signature) is not supported. For incremental updates, fetch the latest transactions and filter client-side.
 
 #### Example
 ```typescript

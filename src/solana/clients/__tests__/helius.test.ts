@@ -298,30 +298,7 @@ describe('HeliusClient', () => {
       );
     });
 
-    it('should get transactions with forward pagination options', async () => {
-      const mockResponse = [{ signature: 'sig2', slot: 12346 }];
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      } as Response);
-
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      const transactions = await client.getTransactions(publicKey, { 
-        limit: 5, 
-        after: 'sig1', 
-        since: 'sig0' 
-      });
-
-      expect(transactions).toEqual(mockResponse);
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=5&after=sig1&since=sig0',
-        expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-    });
 
     it('should get transactions with only before parameter', async () => {
       const mockResponse = [{ signature: 'sig2', slot: 12346 }];
@@ -390,19 +367,7 @@ describe('HeliusClient', () => {
       await expect(client.getTransactions(publicKey, { until: null as any })).rejects.toThrow('Until parameter must be a non-empty string');
     });
 
-    it('should validate after parameter', async () => {
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      
-      await expect(client.getTransactions(publicKey, { after: '' })).rejects.toThrow('After parameter must be a non-empty string');
-      await expect(client.getTransactions(publicKey, { after: null as any })).rejects.toThrow('After parameter must be a non-empty string');
-    });
 
-    it('should validate since parameter', async () => {
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      
-      await expect(client.getTransactions(publicKey, { since: '' })).rejects.toThrow('Since parameter must be a non-empty string');
-      await expect(client.getTransactions(publicKey, { since: null as any })).rejects.toThrow('Since parameter must be a non-empty string');
-    });
 
     it('should log warning when both before and until are provided', async () => {
       const mockLogger = {
@@ -433,74 +398,7 @@ describe('HeliusClient', () => {
       expect(mockLogger.warn).toHaveBeenCalledWith('Both before and until parameters are provided. This may result in unexpected behavior.');
     });
 
-    it('should log warning when both after and since are provided', async () => {
-      const mockLogger = {
-        debug: jest.fn(),
-        info: jest.fn(),
-        warn: jest.fn(),
-        error: jest.fn(),
-      };
 
-      const clientWithLogger = new HeliusClient({
-        apiKey: 'test-api-key',
-        logger: mockLogger
-      });
-
-      const mockResponse = [{ signature: 'sig2', slot: 12346 }];
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      } as Response);
-
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      await clientWithLogger.getTransactions(publicKey, { 
-        after: 'sig1', 
-        since: 'sig0' 
-      });
-
-      expect(mockLogger.warn).toHaveBeenCalledWith('Both after and since parameters are provided. This may result in unexpected behavior.');
-    });
-
-    it('should throw error when mixing backward and forward pagination', async () => {
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      
-      // These should throw the specific parameter conflict error
-      await expect(client.getTransactions(publicKey, { 
-        before: 'sig1', 
-        after: 'sig2' 
-      })).rejects.toThrow('Cannot use both before and after parameters together');
-      
-      await expect(client.getTransactions(publicKey, { 
-        until: 'sig1', 
-        since: 'sig2' 
-      })).rejects.toThrow('Cannot use both until and since parameters together');
-      
-      // These should throw the mixed pagination direction error
-      await expect(client.getTransactions(publicKey, { 
-        before: 'sig1', 
-        since: 'sig2' 
-      })).rejects.toThrow('Cannot mix backward pagination (before/until) with forward pagination (after/since) parameters');
-      
-      await expect(client.getTransactions(publicKey, { 
-        until: 'sig1', 
-        after: 'sig2' 
-      })).rejects.toThrow('Cannot mix backward pagination (before/until) with forward pagination (after/since) parameters');
-    });
-
-    it('should throw error for conflicting parameter combinations', async () => {
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      
-      await expect(client.getTransactions(publicKey, { 
-        before: 'sig1', 
-        after: 'sig2' 
-      })).rejects.toThrow('Cannot use both before and after parameters together');
-      
-      await expect(client.getTransactions(publicKey, { 
-        until: 'sig1', 
-        since: 'sig2' 
-      })).rejects.toThrow('Cannot use both until and since parameters together');
-    });
 
     it('should get all transactions with automatic pagination', async () => {
       // First batch - full page
@@ -587,61 +485,7 @@ describe('HeliusClient', () => {
       );
     });
 
-    it('should get all transactions with forward pagination', async () => {
-      // First batch - full page
-      const firstBatch = [
-        { signature: 'sig1', slot: 12345 },
-        { signature: 'sig2', slot: 12346 },
-        { signature: 'sig3', slot: 12347 }
-      ];
 
-      // Second batch - partial page (end of data)
-      const secondBatch = [
-        { signature: 'sig4', slot: 12348 },
-        { signature: 'sig5', slot: 12349 }
-      ];
-
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => firstBatch,
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => secondBatch,
-        } as Response);
-
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      const allTransactions = await client.getAllTransactions(publicKey, { after: 'sig0', limit: 3 });
-
-      expect(allTransactions).toEqual([
-        { signature: 'sig1', slot: 12345 },
-        { signature: 'sig2', slot: 12346 },
-        { signature: 'sig3', slot: 12347 },
-        { signature: 'sig4', slot: 12348 },
-        { signature: 'sig5', slot: 12349 }
-      ]);
-
-      // Verify first call (with after parameter)
-      expect(mockFetch).toHaveBeenNthCalledWith(
-        1,
-        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=3&after=sig0',
-        expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-
-      // Verify second call (with after parameter for next batch)
-      expect(mockFetch).toHaveBeenNthCalledWith(
-        2,
-        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=3&after=sig3',
-        expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-    });
 
     it('should handle empty result in getAllTransactions', async () => {
       const mockResponse: any[] = [];
@@ -2228,90 +2072,7 @@ describe('HeliusClient', () => {
       );
     });
 
-    it('should get transactions with forward pagination', async () => {
-      // First batch - full page
-      const firstBatch = [
-        { signature: 'sig1', slot: 12345 },
-        { signature: 'sig2', slot: 12346 },
-        { signature: 'sig3', slot: 12347 }
-      ];
 
-      // Second batch - partial page to reach total limit
-      const secondBatch = [
-        { signature: 'sig4', slot: 12348 },
-        { signature: 'sig5', slot: 12349 }
-      ];
-
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => firstBatch,
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => secondBatch,
-        } as Response);
-
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      const transactions = await client.getTransactionsWithLimit(publicKey, 5, { after: 'sig0' }, 3);
-
-      expect(transactions).toEqual([
-        { signature: 'sig1', slot: 12345 },
-        { signature: 'sig2', slot: 12346 },
-        { signature: 'sig3', slot: 12347 },
-        { signature: 'sig4', slot: 12348 },
-        { signature: 'sig5', slot: 12349 }
-      ]);
-
-      // Verify first call (with after parameter)
-      expect(mockFetch).toHaveBeenNthCalledWith(
-        1,
-        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=3&after=sig0',
-        expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-
-      // Verify second call (with after parameter for next batch)
-      expect(mockFetch).toHaveBeenNthCalledWith(
-        2,
-        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=2&after=sig3',
-        expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-    });
-
-    it('should get transactions with since parameter for forward pagination', async () => {
-      // Single batch with since parameter
-      const mockResponse = [
-        { signature: 'sig1', slot: 12345 },
-        { signature: 'sig2', slot: 12346 }
-      ];
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      } as Response);
-
-      const publicKey = new PublicKey('11111111111111111111111111111111');
-      const transactions = await client.getTransactionsWithLimit(publicKey, 2, { since: 'sig0' }, 10);
-
-      expect(transactions).toEqual([
-        { signature: 'sig1', slot: 12345 },
-        { signature: 'sig2', slot: 12346 }
-      ]);
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.helius.xyz/v0/addresses/11111111111111111111111111111111/transactions?api-key=test-api-key&limit=2&since=sig0',
-        expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-    });
 
     it('should handle empty result in getTransactionsWithLimit', async () => {
       const mockResponse: any[] = [];
