@@ -50,6 +50,11 @@ const transaction = await client.getTransaction('signature-here');
 
 // Get current slot
 const slot = await client.getSlot('confirmed');
+
+// Get comprehensive asset data for an NFT or token
+const assetId = '11111111111111111111111111111111'; // Mint address
+const assetData = await client.getAsset(assetId);
+console.log('Asset data:', assetData);
 ```
 
 ### SPL Client for Priority Fees
@@ -147,6 +152,7 @@ interface HeliusConfig {
 - `getBalance(publicKey: PublicKey): Promise<number>`
 - `getAccountInfo(publicKey: PublicKey, encoding?: 'base64' | 'base58'): Promise<any>`
 - `getTransaction(signature: string, commitment?: 'processed' | 'confirmed' | 'finalized'): Promise<any>`
+- `getAsset(assetId: string): Promise<any>` - Get comprehensive asset data for any Solana NFT or digital asset
 - `getRecentBlockhash(commitment?: 'processed' | 'confirmed' | 'finalized'): Promise<any>`
 - `getSlot(commitment?: 'processed' | 'confirmed' | 'finalized'): Promise<number>`
 - `getClusterNodes(): Promise<any[]>`
@@ -293,6 +299,25 @@ async function sendTransactionWithPriorityFee() {
   });
   
   console.log('Transaction sent:', signature);
+}
+```
+
+### Asset Data Retrieval
+
+```typescript
+import { HeliusClient } from 'delegate-framework';
+
+async function getAssetInformation() {
+  const client = new HeliusClient({ apiKey: 'your-api-key' });
+  
+  // Get comprehensive data for an NFT or token
+  const assetId = '11111111111111111111111111111111'; // Mint address
+  const assetData = await client.getAsset(assetId);
+  
+  // Asset data includes on-chain metadata, off-chain metadata, and more
+  console.log('Asset name:', assetData[0]?.onChainMetadata?.metadata?.name);
+  console.log('Token standard:', assetData[0]?.onChainMetadata?.tokenStandard);
+  console.log('Off-chain metadata:', assetData[0]?.offChainMetadata);
 }
 ```
 
