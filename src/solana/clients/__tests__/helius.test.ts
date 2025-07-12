@@ -1743,6 +1743,115 @@ describe('HeliusClient', () => {
     });
   });
 
+  describe('getAsset', () => {
+    it('should successfully get asset data', async () => {
+      const mockResponse = [
+        {
+          onChainMetadata: {
+            metadata: {
+              name: 'Test NFT',
+              symbol: 'TNFT',
+              uri: 'https://example.com/metadata.json',
+            },
+            tokenStandard: 'NonFungible',
+            mint: '11111111111111111111111111111111',
+          },
+          offChainMetadata: {
+            metadata: {
+              name: 'Test NFT',
+              symbol: 'TNFT',
+              description: 'A test NFT',
+              image: 'https://example.com/image.png',
+            },
+            uri: 'https://example.com/metadata.json',
+          },
+          legacyMetadata: null,
+        }
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const assetId = '11111111111111111111111111111111';
+      const assetData = await client.getAsset(assetId);
+
+      expect(assetData).toEqual(mockResponse);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.helius.xyz/v0/token-metadata?api-key=test-api-key',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mintAccounts: [assetId],
+            includeOffChain: true,
+            disableCache: false
+          })
+        })
+      );
+    });
+
+    it('should handle API errors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({}),
+      } as Response);
+
+      const assetId = '11111111111111111111111111111111';
+
+      await expect(client.getAsset(assetId)).rejects.toThrow('Network Error: No response received from fetch');
+    });
+
+    it('should handle network errors', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const assetId = '11111111111111111111111111111111';
+
+      await expect(client.getAsset(assetId)).rejects.toThrow('Network Error: No response received from fetch');
+    });
+
+    it('should retry on failure', async () => {
+      const mockResponse = [
+        {
+          onChainMetadata: {
+            metadata: {
+              name: 'Test NFT',
+              symbol: 'TNFT',
+            },
+            tokenStandard: 'NonFungible',
+            mint: '11111111111111111111111111111111',
+          },
+        }
+      ];
+
+      // First call fails, second succeeds
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockResponse,
+        } as Response);
+
+      const assetId = '11111111111111111111111111111111';
+      const assetData = await client.getAsset(assetId);
+
+      expect(assetData).toEqual(mockResponse);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should timeout after specified duration', async () => {
+      // Mock a fetch that never resolves
+      (fetch as jest.MockedFunction<typeof fetch>).mockImplementationOnce(() => new Promise(() => {}));
+
+      const assetId = '11111111111111111111111111111111';
+
+      await expect(client.getAsset(assetId)).rejects.toThrow('Network Error: No response received from fetch');
+    });
+  });
+
   describe('getWalletTokenData', () => {
     it('should successfully get wallet token data', async () => {
       const walletAddress = '11111111111111111111111111111111';

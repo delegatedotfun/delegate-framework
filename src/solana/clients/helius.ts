@@ -374,6 +374,27 @@ export class HeliusClient {
     }
 
     /**
+     * Get comprehensive asset data for any Solana NFT or digital asset
+     * @param assetId - The asset ID (mint address)
+     * @returns Comprehensive asset data including metadata, ownership, and other details
+     */
+    public async getAsset(assetId: string): Promise<any> {
+        // Build URL for the DAS getAsset endpoint
+        const baseUrl = this.config.enhancedApiUrl.replace(/\/$/, ''); // Remove trailing slash if present
+        const url = new URL(`${baseUrl}/token-metadata`);
+        url.searchParams.set('api-key', this.config.apiKey);
+
+        // Make the request with the asset ID in the request body
+        const requestBody = {
+            mintAccounts: [assetId],
+            includeOffChain: true,
+            disableCache: false
+        };
+
+        return this.makeRestPostRequest(url.toString(), requestBody);
+    }
+
+    /**
      * Get comprehensive token account data for a wallet
      * @param walletAddress - The wallet public key
      * @returns Token account data including SOL balance and all token accounts
@@ -566,7 +587,7 @@ export class HeliusClient {
                 }
 
                 if (!response.ok) {
-                    throw new Error(`Network Error: HTTP ${response.status}: ${response.statusText}`);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
                 const data = await response.json();
@@ -580,14 +601,87 @@ export class HeliusClient {
                 // Only retry on network errors or timeouts
                 const isTimeout = /timed out/i.test(lastError.message);
                 const isNetwork = /network|fetch|Failed to fetch|TypeError|No response received/i.test(lastError.message);
-                if (!isTimeout && !isNetwork) {
+                const isHttpError = /^HTTP \d+:/i.test(lastError.message);
+                
+                if (!isTimeout && !isNetwork && !isHttpError) {
                     this.logger?.error(`REST Request ${requestId} failed after ${attempt} attempts:`, lastError);
                     throw lastError;
                 }
 
                 if (attempt === this.config.retries) {
                     this.logger?.error(`REST Request ${requestId} failed after ${attempt} attempts:`, lastError);
-                    throw new Error(`Network Error: ${lastError.message}`);
+                    throw lastError;
+                }
+
+                await this.delay(Math.pow(2, attempt - 1) * 1000);
+            }
+        }
+
+        throw lastError!;
+    }
+
+    /**
+     * Make a REST API POST request (for non-JSON-RPC endpoints that require POST with body)
+     * @param url - Full URL to request
+     * @param body - Request body to send
+     * @returns Response data
+     */
+    private async makeRestPostRequest(url: string, body: any): Promise<any> {
+        const requestId = ++this.requestId;
+
+        this.logger?.debug(`REST POST Request ${requestId}: ${url}`, body);
+
+        let lastError: Error | undefined;
+
+        for (let attempt = 1; attempt <= this.config.retries; attempt++) {
+            try {
+                let response: Response | undefined;
+                try {
+                    response = await Promise.race([
+                        fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body),
+                            signal: AbortSignal.timeout(this.config.timeout),
+                        }),
+                        new Promise<never>((_, reject) =>
+                            setTimeout(() => reject(new Error(`Operation timed out after ${this.config.timeout}ms`)), this.config.timeout)
+                        ),
+                    ]);
+                } catch (error) {
+                    // Network error or timeout
+                    throw new Error(`Network Error: ${error instanceof Error ? error.message : String(error)}`);
+                }
+
+                if (!response || !('ok' in response)) {
+                    throw new Error('Network Error: No response received from fetch');
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                this.logger?.debug(`REST POST Response ${requestId}:`, data);
+
+                return data;
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                this.logger?.warn(`REST POST Request ${requestId} attempt ${attempt} failed:`, lastError);
+
+                // Only retry on network errors or timeouts
+                const isTimeout = /timed out/i.test(lastError.message);
+                const isNetwork = /network|fetch|Failed to fetch|TypeError|No response received/i.test(lastError.message);
+                const isHttpError = /^HTTP \d+:/i.test(lastError.message);
+                
+                if (!isTimeout && !isNetwork && !isHttpError) {
+                    this.logger?.error(`REST POST Request ${requestId} failed after ${attempt} attempts:`, lastError);
+                    throw lastError;
+                }
+
+                if (attempt === this.config.retries) {
+                    this.logger?.error(`REST POST Request ${requestId} failed after ${attempt} attempts:`, lastError);
+                    throw lastError;
                 }
 
                 await this.delay(Math.pow(2, attempt - 1) * 1000);
