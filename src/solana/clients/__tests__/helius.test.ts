@@ -194,6 +194,145 @@ describe('HeliusClient', () => {
         })
       );
     });
+
+    it('should parse Metaplex metadata when requested', async () => {
+      // Mock metadata account data (simplified for test)
+      const mockMetadataData = Buffer.alloc(150);
+      mockMetadataData.writeUInt32LE(4, 65); // name length
+      mockMetadataData.write('Test', 69); // name
+      mockMetadataData.writeUInt32LE(3, 73); // symbol length
+      mockMetadataData.write('TST', 77); // symbol
+      mockMetadataData.writeUInt32LE(20, 80); // uri length
+      mockMetadataData.write('https://example.com', 84); // uri
+      mockMetadataData.writeUInt16LE(500, 104); // seller fee basis points
+      mockMetadataData.writeUInt8(0, 106); // no creators
+      mockMetadataData.writeUInt8(0, 107); // no collection
+      mockMetadataData.writeUInt8(0, 108); // no uses
+      mockMetadataData.writeUInt8(1, 109); // isMutable = true
+
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            data: [mockMetadataData.toString('base64')],
+            owner: 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',
+            executable: false,
+            lamports: 1000000,
+            rentEpoch: 361,
+          },
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const metadata = await client.getAccountInfo(publicKey, { 
+        parseMetaplexMetadata: true 
+      });
+
+      expect(metadata.name).toBe('Test');
+      expect(metadata.symbol).toBe('TST');
+      expect(metadata.uri).toBe('https://example.com');
+      expect(metadata.sellerFeeBasisPoints).toBe(500);
+      expect(metadata.isMutable).toBe(true);
+    });
+
+    it('should derive metadata account from mint address', async () => {
+      // Mock mint account info
+      const mockMintResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            data: 'base64data',
+            owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+            executable: false,
+            lamports: 1000000,
+            rentEpoch: 361,
+          },
+        },
+      };
+
+      // Mock metadata account info
+      const mockMetadataData = Buffer.alloc(150);
+      mockMetadataData.writeUInt32LE(4, 65);
+      mockMetadataData.write('Test', 69);
+      mockMetadataData.writeUInt32LE(3, 73);
+      mockMetadataData.write('TST', 77);
+      mockMetadataData.writeUInt32LE(20, 80);
+      mockMetadataData.write('https://example.com', 84);
+      mockMetadataData.writeUInt16LE(500, 104);
+      mockMetadataData.writeUInt8(0, 106);
+      mockMetadataData.writeUInt8(0, 107);
+      mockMetadataData.writeUInt8(0, 108);
+      mockMetadataData.writeUInt8(1, 109);
+
+      const mockMetadataResponse = {
+        jsonrpc: '2.0',
+        id: 2,
+        result: {
+          value: {
+            data: [mockMetadataData.toString('base64')],
+            owner: 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',
+            executable: false,
+            lamports: 1000000,
+            rentEpoch: 361,
+          },
+        },
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockMintResponse,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => mockMetadataResponse,
+        } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const metadata = await client.getAccountInfo(publicKey, { 
+        parseMetaplexMetadata: true 
+      });
+
+      expect(metadata.name).toBe('Test');
+      expect(metadata.symbol).toBe('TST');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle backward compatibility with string encoding parameter', async () => {
+      const mockResponse = {
+        jsonrpc: '2.0',
+        id: 1,
+        result: { data: 'base64data', owner: '11111111111111111111111111111111' },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const accountInfo = await client.getAccountInfo(publicKey, 'base58');
+
+      expect(accountInfo).toEqual(mockResponse.result);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getAccountInfo',
+            params: ['11111111111111111111111111111111', { encoding: 'base58' }],
+          }),
+        })
+      );
+    });
   });
 
   describe('getTransaction', () => {

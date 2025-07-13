@@ -133,3 +133,54 @@ export interface SendTransactionOptions {
     preflightCommitment?: 'processed' | 'confirmed' | 'finalized';
     encoding?: 'base58' | 'base64';
 }
+
+/**
+ * Options for getting account info with enhanced parsing
+ */
+export interface GetAccountInfoOptions {
+    encoding?: 'base64' | 'base58' | 'jsonParsed';
+    parseMetaplexMetadata?: boolean;
+    includeOffChainMetadata?: boolean;
+}
+
+/**
+ * Metaplex Creator information
+ */
+export interface MetaplexCreator {
+    address: string;
+    verified: boolean;
+    share: number;
+}
+
+/**
+ * Metaplex Collection information
+ */
+export interface MetaplexCollection {
+    verified: boolean;
+    key: string;
+}
+
+/**
+ * Parsed Metaplex metadata structure
+ */
+export interface MetaplexMetadata {
+    name: string;
+    symbol: string;
+    uri: string;
+    sellerFeeBasisPoints: number;
+    creators?: MetaplexCreator[];
+    collection?: MetaplexCollection;
+    uses?: {
+        useMethod: string;
+        remaining: number;
+        total: number;
+    };
+    isMutable: boolean;
+    editionNonce?: number;
+    tokenStandard?: string;
+    collectionDetails?: {
+        __kind: string;
+        [key: string]: any;
+    };
+    offChainMetadata?: any;
+}

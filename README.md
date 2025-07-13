@@ -42,6 +42,14 @@ console.log('Balance:', balance);
 // Get account information
 const accountInfo = await client.getAccountInfo(publicKey, 'base64');
 
+// Get account information with Metaplex metadata parsing
+const metadata = await client.getAccountInfo(publicKey, { 
+  parseMetaplexMetadata: true,
+  includeOffChainMetadata: true 
+});
+console.log('NFT Name:', metadata.name);
+console.log('Creators:', metadata.creators);
+
 // Get recent blockhash
 const blockhash = await client.getRecentBlockhash('confirmed');
 
@@ -150,7 +158,7 @@ interface HeliusConfig {
 
 #### Methods
 - `getBalance(publicKey: PublicKey): Promise<number>`
-- `getAccountInfo(publicKey: PublicKey, encoding?: 'base64' | 'base58'): Promise<any>`
+- `getAccountInfo(publicKey: PublicKey, encodingOrOptions?: 'base64' | 'base58' | GetAccountInfoOptions): Promise<any>` - Get account info with optional Metaplex metadata parsing
 - `getTransaction(signature: string, commitment?: 'processed' | 'confirmed' | 'finalized'): Promise<any>`
 - `getAsset(assetId: string): Promise<any>` - Get comprehensive asset data for any Solana NFT or digital asset
 - `getRecentBlockhash(commitment?: 'processed' | 'confirmed' | 'finalized'): Promise<any>`
@@ -318,6 +326,38 @@ async function getAssetInformation() {
   console.log('Asset name:', assetData[0]?.onChainMetadata?.metadata?.name);
   console.log('Token standard:', assetData[0]?.onChainMetadata?.tokenStandard);
   console.log('Off-chain metadata:', assetData[0]?.offChainMetadata);
+}
+```
+
+### Metaplex Metadata Parsing
+
+```typescript
+import { HeliusClient } from 'delegate-framework';
+import { PublicKey } from '@solana/web3.js';
+
+async function getMetaplexMetadata() {
+  const client = new HeliusClient({ apiKey: 'your-api-key' });
+  
+  // Get metadata directly from a metadata account
+  const metadataAccount = new PublicKey('metadata-account-address');
+  const metadata = await client.getAccountInfo(metadataAccount, { 
+    parseMetaplexMetadata: true,
+    includeOffChainMetadata: true 
+  });
+  
+  console.log('NFT Name:', metadata.name);
+  console.log('Symbol:', metadata.symbol);
+  console.log('Creators:', metadata.creators);
+  console.log('Collection:', metadata.collection);
+  console.log('Royalty:', metadata.sellerFeeBasisPoints / 100, '%');
+  
+  // Get metadata from a mint address (automatically derives metadata account)
+  const mintAddress = new PublicKey('mint-address');
+  const mintMetadata = await client.getAccountInfo(mintAddress, { 
+    parseMetaplexMetadata: true 
+  });
+  
+  console.log('Mint Metadata:', mintMetadata);
 }
 ```
 

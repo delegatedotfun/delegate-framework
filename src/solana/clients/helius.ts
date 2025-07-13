@@ -1,13 +1,14 @@
 import { Transaction as SolanaTransaction, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { throwError } from "../../utils/error-handling";
-import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions, GetTransactionsOptions, Transaction } from "../types";
+import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions, GetTransactionsOptions, Transaction, GetAccountInfoOptions, MetaplexMetadata } from "../types";
 
 export class HeliusClient {
     private static readonly DEFAULT_TIMEOUT = 30000;
     private static readonly DEFAULT_RETRIES = 3;
     private static readonly DEFAULT_RPC_URL = "https://mainnet.helius-rpc.com";
     private static readonly DEFAULT_ENHANCED_API_URL = "https://api.helius.xyz/v0";
+    private static readonly METAPLEX_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
     
     private readonly config: Omit<Required<HeliusConfig>, 'logger'> & { logger?: Logger };
     private readonly logger?: Logger;
@@ -54,16 +55,45 @@ export class HeliusClient {
     }
 
     /**
-     * Get account information
+     * Get account information with enhanced Metaplex metadata parsing
      * @param publicKey - The public key to get account info for
-     * @param encoding - Optional encoding (default: 'base64')
-     * @returns Account information
+     * @param encodingOrOptions - Optional encoding or configuration options
+     * @returns Account information with optional parsed Metaplex metadata
      */
-    public async getAccountInfo(publicKey: PublicKey, encoding: 'base64' | 'base58' = 'base64'): Promise<any> {
-        return this.makeRequest('getAccountInfo', [
+    public async getAccountInfo(publicKey: PublicKey, encodingOrOptions?: 'base64' | 'base58' | GetAccountInfoOptions): Promise<any> {
+        let options: GetAccountInfoOptions;
+        
+        if (typeof encodingOrOptions === 'string') {
+            options = { encoding: encodingOrOptions };
+        } else {
+            options = encodingOrOptions || { encoding: 'base64' };
+        }
+        const { encoding = 'base64', parseMetaplexMetadata = false, includeOffChainMetadata = false } = options;
+        
+        // Get basic account info
+        const accountInfo = await this.makeRequest('getAccountInfo', [
             publicKey.toString(),
             { encoding }
         ]);
+
+        // If Metaplex metadata parsing is requested and this is a metadata account
+        if (parseMetaplexMetadata && accountInfo?.value?.owner === HeliusClient.METAPLEX_METADATA_PROGRAM_ID) {
+            return this.parseMetaplexMetadata(accountInfo, includeOffChainMetadata);
+        }
+
+        // If parseMetaplexMetadata is true but this isn't a metadata account, try to derive metadata from mint
+        if (parseMetaplexMetadata && accountInfo?.value?.owner !== HeliusClient.METAPLEX_METADATA_PROGRAM_ID) {
+            try {
+                const metadataAccount = await this.getMetaplexMetadataAccount(publicKey);
+                if (metadataAccount) {
+                    return this.parseMetaplexMetadata(metadataAccount, includeOffChainMetadata);
+                }
+            } catch (error) {
+                this.logger?.debug('Failed to derive metadata account from mint:', error);
+            }
+        }
+
+        return accountInfo;
     }
 
     /**
@@ -689,5 +719,220 @@ export class HeliusClient {
         }
 
         throw lastError!;
+    }
+
+    /**
+     * Derive the Metaplex metadata account PDA for a given mint
+     * @param mint - The mint public key
+     * @returns The metadata account public key
+     * @private
+     */
+    private async deriveMetaplexMetadataAccount(mint: PublicKey): Promise<PublicKey> {
+        const [metadataAccount] = PublicKey.findProgramAddressSync(
+            [
+                Buffer.from('metadata'),
+                new PublicKey(HeliusClient.METAPLEX_METADATA_PROGRAM_ID).toBuffer(),
+                mint.toBuffer(),
+            ],
+            new PublicKey(HeliusClient.METAPLEX_METADATA_PROGRAM_ID)
+        );
+        return metadataAccount;
+    }
+
+    /**
+     * Get the Metaplex metadata account for a given mint
+     * @param mint - The mint public key
+     * @returns Metadata account info or null if not found
+     * @private
+     */
+    private async getMetaplexMetadataAccount(mint: PublicKey): Promise<any> {
+        try {
+            const metadataAccount = await this.deriveMetaplexMetadataAccount(mint);
+            return await this.makeRequest('getAccountInfo', [
+                metadataAccount.toString(),
+                { encoding: 'base64' }
+            ]);
+        } catch (error) {
+            this.logger?.debug('Failed to get metadata account:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Parse Metaplex metadata from account data
+     * @param accountInfo - The account info response
+     * @param includeOffChainMetadata - Whether to include off-chain metadata
+     * @returns Parsed metadata structure
+     * @private
+     */
+    private async parseMetaplexMetadata(accountInfo: any, includeOffChainMetadata: boolean = false): Promise<MetaplexMetadata> {
+        if (!accountInfo?.value?.data) {
+            throw new Error('No account data found');
+        }
+
+        // Decode the base64 data
+        const data = Buffer.from(accountInfo.value.data[0], 'base64');
+        
+        // Parse the metadata structure
+        // Metaplex metadata format: [1 byte key] + [32 bytes update authority] + [32 bytes mint] + [variable data]
+        const metadataData = data.slice(65);
+
+        // Parse the variable metadata section
+        let offset = 0;
+        
+        // Read name (string)
+        const nameLength = metadataData.readUInt32LE(offset);
+        offset += 4;
+        const name = metadataData.slice(offset, offset + nameLength).toString('utf8').replace(/\0/g, '').trim();
+        offset += nameLength;
+
+        // Read symbol (string)
+        const symbolLength = metadataData.readUInt32LE(offset);
+        offset += 4;
+        const symbol = metadataData.slice(offset, offset + symbolLength).toString('utf8').replace(/\0/g, '').trim();
+        offset += symbolLength;
+
+        // Read URI (string)
+        const uriLength = metadataData.readUInt32LE(offset);
+        offset += 4;
+        const uri = metadataData.slice(offset, offset + uriLength).toString('utf8').replace(/\0/g, '').trim();
+        offset += uriLength;
+
+        // Read seller fee basis points (u16)
+        const sellerFeeBasisPoints = metadataData.readUInt16LE(offset);
+        offset += 2;
+
+        // Read creators (optional)
+        const hasCreators = metadataData[offset] === 1;
+        offset += 1;
+        
+        let creators = undefined;
+        if (hasCreators) {
+            const creatorsLength = metadataData.readUInt32LE(offset);
+            offset += 4;
+            creators = [];
+            
+            for (let i = 0; i < creatorsLength; i++) {
+                const creatorAddress = metadataData.slice(offset, offset + 32);
+                offset += 32;
+                const verified = metadataData[offset] === 1;
+                offset += 1;
+                const share = metadataData[offset];
+                offset += 1;
+                
+                creators.push({
+                    address: new PublicKey(creatorAddress).toString(),
+                    verified,
+                    share: share || 0
+                });
+            }
+        }
+
+        // Read collection (optional)
+        const hasCollection = metadataData[offset] === 1;
+        offset += 1;
+        
+        let collection = undefined;
+        if (hasCollection) {
+            const collectionKey = metadataData.slice(offset, offset + 32);
+            offset += 32;
+            const verified = metadataData[offset] === 1;
+            offset += 1;
+            
+            collection = {
+                key: new PublicKey(collectionKey).toString(),
+                verified
+            };
+        }
+
+        // Read uses (optional)
+        const hasUses = metadataData[offset] === 1;
+        offset += 1;
+        
+        let uses = undefined;
+        if (hasUses) {
+            const useMethod = metadataData[offset];
+            offset += 1;
+            const remaining = metadataData.readBigUInt64LE(offset);
+            offset += 8;
+            const total = metadataData.readBigUInt64LE(offset);
+            offset += 8;
+            
+            uses = {
+                useMethod: useMethod === 0 ? 'Burn' : useMethod === 1 ? 'Multiple' : 'Single',
+                remaining: Number(remaining),
+                total: Number(total)
+            };
+        }
+
+        // Read isMutable (bool)
+        const isMutable = metadataData[offset] === 1;
+        offset += 1;
+
+        // Read editionNonce (optional)
+        const hasEditionNonce = metadataData[offset] === 1;
+        offset += 1;
+        
+        let editionNonce = undefined;
+        if (hasEditionNonce) {
+            editionNonce = metadataData[offset];
+        }
+
+        // Read tokenStandard (optional)
+        const hasTokenStandard = metadataData[offset] === 1;
+        offset += 1;
+        
+        let tokenStandard = undefined;
+        if (hasTokenStandard) {
+            const standard = metadataData[offset];
+            tokenStandard = standard === 0 ? 'NonFungible' : 
+                           standard === 1 ? 'FungibleAsset' : 
+                           standard === 2 ? 'Fungible' : 
+                           standard === 3 ? 'NonFungibleEdition' : 'Unknown';
+        }
+
+        // Read collectionDetails (optional)
+        const hasCollectionDetails = metadataData[offset] === 1;
+        offset += 1;
+        
+        let collectionDetails = undefined;
+        if (hasCollectionDetails) {
+            const detailsType = metadataData[offset];
+            offset += 1;
+            
+            if (detailsType === 0) {
+                collectionDetails = { __kind: 'V1', size: Number(metadataData.readBigUInt64LE(offset)) };
+            } else if (detailsType === 1) {
+                collectionDetails = { __kind: 'V2' };
+            }
+        }
+
+        const metadata: MetaplexMetadata = {
+            name,
+            symbol,
+            uri,
+            sellerFeeBasisPoints,
+            creators,
+            collection,
+            uses,
+            isMutable,
+            editionNonce,
+            tokenStandard,
+            collectionDetails
+        };
+
+        // Optionally fetch off-chain metadata
+        if (includeOffChainMetadata && uri) {
+            try {
+                const offChainResponse = await fetch(uri);
+                if (offChainResponse.ok) {
+                    metadata.offChainMetadata = await offChainResponse.json();
+                }
+            } catch (error) {
+                this.logger?.warn('Failed to fetch off-chain metadata:', error);
+            }
+        }
+
+        return metadata;
     }
 }
