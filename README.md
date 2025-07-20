@@ -59,6 +59,23 @@ const transaction = await client.getTransaction('signature-here');
 // Get current slot
 const slot = await client.getSlot('confirmed');
 
+// Send native SOL transfer
+const signature = await client.sendNativeTransfer(
+  keypair, // Use keypair directly as from parameter
+  new PublicKey('to-wallet-address'),
+  1000000 // 0.001 SOL in lamports
+);
+console.log('Transfer signature:', signature);
+
+// Send SPL token transfer
+const tokenSignature = await client.sendTokenTransfer(
+  new PublicKey('to-token-account'),
+  keypair, // Use keypair directly as owner parameter
+  1000000, // amount
+  new PublicKey('token-mint-address')
+);
+console.log('Token transfer signature:', tokenSignature);
+
 // Get comprehensive asset data for an NFT or token
 const assetId = '11111111111111111111111111111111'; // Mint address
 const assetData = await client.getAsset(assetId);
@@ -166,6 +183,8 @@ interface HeliusConfig {
 - `getClusterNodes(): Promise<any[]>`
 - `getVersion(): Promise<any>`
 - `sendTransaction(transaction: Transaction, options?: SendTransactionOptions): Promise<string>`
+- `sendNativeTransfer(from: Keypair, to: PublicKey, amount: number, options?: SendTransactionOptions): Promise<string>` - Send native SOL transfer
+- `sendTokenTransfer(to: PublicKey, owner: Keypair, amount: number, mint: PublicKey, options?: SendTransactionOptions): Promise<string>` - Send SPL token transfer
 
 ### SplClient
 
@@ -310,6 +329,69 @@ async function sendTransactionWithPriorityFee() {
 }
 ```
 
+### Token Transfer Examples
+
+```typescript
+import { HeliusClient } from 'delegate-framework';
+import { PublicKey, Keypair } from '@solana/web3.js';
+
+async function performTransfers() {
+  const client = new HeliusClient({ apiKey: 'your-api-key' });
+  
+  // Create or load your keypair
+  const keypair = Keypair.fromSecretKey(/* your secret key bytes */);
+  // Or load from environment: Keypair.fromSecretKey(Buffer.from(process.env.PRIVATE_KEY, 'base64'));
+  
+  // Send native SOL transfer
+  const solSignature = await client.sendNativeTransfer(
+    keypair, // Use keypair directly as from parameter
+    new PublicKey('22222222222222222222222222222222'), // to
+    1000000, // 0.001 SOL in lamports
+    {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    }
+  );
+  console.log('SOL transfer:', solSignature);
+  
+  // Send SPL token transfer (e.g., USDC)
+  const tokenSignature = await client.sendTokenTransfer(
+    new PublicKey('44444444444444444444444444444444'), // to token account
+    keypair, // Use keypair directly as owner parameter
+    1000000, // amount (1 USDC = 1,000,000 with 6 decimals)
+    new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'), // USDC mint
+    {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    }
+  );
+  console.log('Token transfer:', tokenSignature);
+}
+
+// Helper function to convert human-readable amounts to raw amounts
+function convertToRawAmount(amount: number, decimals: number): number {
+  return Math.floor(amount * Math.pow(10, decimals));
+}
+
+// Example: Transfer 1.5 USDC
+async function transferUSDC() {
+  const client = new HeliusClient({ apiKey: 'your-api-key' });
+  
+  // Load your keypair (replace with your actual keypair loading logic)
+  const keypair = Keypair.fromSecretKey(/* your secret key */);
+  
+  const rawAmount = convertToRawAmount(1.5, 6); // USDC has 6 decimals
+  const signature = await client.sendTokenTransfer(
+    new PublicKey('to-token-account'),
+    keypair, // Use keypair directly as owner parameter
+    rawAmount,
+    new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') // USDC mint
+  );
+  
+  console.log('USDC transfer completed:', signature);
+}
+```
+
 ### Asset Data Retrieval
 
 ```typescript
@@ -377,6 +459,103 @@ async function safeGetBalance(publicKey: PublicKey) {
     // Re-throw with context
     throwError(error, 'Balance Check Failed');
   }
+}
+```
+
+### Practical Transfer Workflow
+
+```typescript
+import { HeliusClient } from 'delegate-framework';
+import { PublicKey, Keypair } from '@solana/web3.js';
+
+async function completeTransferWorkflow() {
+  const client = new HeliusClient({ 
+    apiKey: 'your-api-key',
+    timeout: 30000,
+    retries: 3 
+  });
+  
+  // Load your keypair (replace with your actual keypair loading logic)
+  const keypair = Keypair.fromSecretKey(/* your secret key bytes */);
+  
+  // 1. Check balances before transfer
+  const fromWallet = keypair.publicKey; // Get public key from keypair
+  const toWallet = new PublicKey('recipient-address');
+  
+  const fromBalance = await client.getBalance(fromWallet);
+  const toBalance = await client.getBalance(toWallet);
+  
+  console.log('From balance:', fromBalance / 1e9, 'SOL');
+  console.log('To balance:', toBalance / 1e9, 'SOL');
+  
+  // 2. Send native SOL transfer
+  const transferAmount = 0.001 * 1e9; // 0.001 SOL in lamports
+  
+  try {
+    const signature = await client.sendNativeTransfer(
+      keypair, // Use keypair directly as from parameter
+      toWallet,
+      transferAmount,
+      {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed'
+      }
+    );
+    
+    console.log('Transfer sent:', signature);
+    
+    // 3. Wait for confirmation
+    const confirmation = await client.waitForConfirmation(signature, 'confirmed');
+    console.log('Transfer confirmed:', confirmation);
+    
+    // 4. Check balances after transfer
+    const newFromBalance = await client.getBalance(fromWallet);
+    const newToBalance = await client.getBalance(toWallet);
+    
+    console.log('New from balance:', newFromBalance / 1e9, 'SOL');
+    console.log('New to balance:', newToBalance / 1e9, 'SOL');
+    
+  } catch (error) {
+    console.error('Transfer failed:', error);
+  }
+}
+
+// Advanced: Token transfer with balance checks
+async function tokenTransferWithValidation() {
+  const client = new HeliusClient({ apiKey: 'your-api-key' });
+  
+  // Load your keypair
+  const keypair = Keypair.fromSecretKey(/* your secret key bytes */);
+  
+  const toTokenAccount = new PublicKey('recipient-token-account');
+  const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC
+  
+  // Get the source token account for balance checking
+  const sourceTokenAccount = await client.getTokenAccount(keypair.publicKey, mint);
+  const fromTokenAccount = new PublicKey(sourceTokenAccount.value[0].pubkey);
+  
+  // Check token balances
+  const fromBalance = await client.getTokenAccountBalance(fromTokenAccount);
+  const toBalance = await client.getTokenAccountBalance(toTokenAccount);
+  
+  console.log('From token balance:', fromBalance.value.uiAmount, 'USDC');
+  console.log('To token balance:', toBalance.value.uiAmount, 'USDC');
+  
+  // Transfer 10 USDC
+  const transferAmount = 10 * 1e6; // USDC has 6 decimals
+  
+  if (fromBalance.value.uiAmount < 10) {
+    throw new Error('Insufficient token balance');
+  }
+  
+  const signature = await client.sendTokenTransfer(
+    toTokenAccount,
+    keypair, // Use keypair directly as owner parameter
+    transferAmount,
+    mint
+  );
+  
+  console.log('Token transfer completed:', signature);
 }
 ```
 

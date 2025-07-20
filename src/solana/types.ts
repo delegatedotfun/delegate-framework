@@ -135,6 +135,21 @@ export interface SendTransactionOptions {
 }
 
 /**
+ * Options for native SOL transfers
+ */
+export interface NativeTransferOptions extends SendTransactionOptions {
+    amount: number; // in lamports
+}
+
+/**
+ * Options for SPL token transfers
+ */
+export interface TokenTransferOptions extends SendTransactionOptions {
+    amount: number; // raw token amount (not adjusted for decimals)
+    decimals?: number; // token decimals for amount conversion
+}
+
+/**
  * Options for getting account info with enhanced parsing
  */
 export interface GetAccountInfoOptions {

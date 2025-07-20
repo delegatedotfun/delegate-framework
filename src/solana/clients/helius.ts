@@ -1,4 +1,5 @@
-import { Transaction as SolanaTransaction, PublicKey } from "@solana/web3.js";
+import { Transaction as SolanaTransaction, PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID, createTransferInstruction } from "@solana/spl-token";
 import bs58 from "bs58";
 import { throwError } from "../../utils/error-handling";
 import { HeliusConfig, SendTransactionOptions, Logger, RpcRequest, RpcResponse, GetLatestBlockhashOptions, GetTransactionsOptions, Transaction, GetAccountInfoOptions, MetaplexMetadata } from "../types";
@@ -43,6 +44,92 @@ export class HeliusClient {
                 preflightCommitment: options.preflightCommitment || 'confirmed',
             }
         ]);
+    }
+
+    /**
+     * Send native SOL transfer
+     * @param from - Source wallet keypair
+     * @param to - Destination wallet public key
+     * @param amount - Amount in lamports
+     * @param options - Optional transaction options
+     * @returns Transaction signature
+     */
+    public async sendNativeTransfer(
+        from: Keypair,
+        to: PublicKey,
+        amount: number,
+        options: SendTransactionOptions = {}
+    ): Promise<string> {
+        const transaction = new SolanaTransaction();
+        
+        // Get recent blockhash
+        const { blockhash } = await this.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = from.publicKey;
+        
+        // Add transfer instruction
+        transaction.add(
+            SystemProgram.transfer({
+                fromPubkey: from.publicKey,
+                toPubkey: to,
+                lamports: amount,
+            })
+        );
+
+        // Sign the transaction
+        transaction.sign(from);
+
+        return this.sendTransaction(transaction, options);
+    }
+
+    /**
+     * Send SPL token transfer
+     * @param to - Destination token account public key
+     * @param owner - Owner keypair of the source token account
+     * @param amount - Amount to transfer
+     * @param mint - Token mint address
+     * @param options - Optional transaction options
+     * @returns Transaction signature
+     */
+    public async sendTokenTransfer(
+        to: PublicKey,
+        owner: Keypair,
+        amount: number,
+        mint: PublicKey,
+        options: SendTransactionOptions = {}
+    ): Promise<string> {
+        const transaction = new SolanaTransaction();
+        
+        // Get the source token account for this owner and mint
+        const sourceTokenAccount = await this.getTokenAccount(owner.publicKey, mint);
+        
+        if (!sourceTokenAccount || !sourceTokenAccount.value || sourceTokenAccount.value.length === 0) {
+            throw new Error(`No token account found for owner ${owner.publicKey.toString()} and mint ${mint.toString()}`);
+        }
+        
+        const fromTokenAccount = new PublicKey(sourceTokenAccount.value[0].pubkey);
+        
+        // Get recent blockhash
+        const { blockhash } = await this.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = owner.publicKey;
+        
+        // Add token transfer instruction
+        transaction.add(
+            createTransferInstruction(
+                fromTokenAccount,
+                to,
+                owner.publicKey,
+                amount,
+                [],
+                TOKEN_PROGRAM_ID
+            )
+        );
+
+        // Sign the transaction
+        transaction.sign(owner);
+
+        return this.sendTransaction(transaction, options);
     }
 
     /**
