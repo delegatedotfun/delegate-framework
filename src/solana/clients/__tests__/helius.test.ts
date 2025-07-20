@@ -9,8 +9,9 @@ afterAll(() => {
 });
 
 import { HeliusClient } from '../helius';
-import { PublicKey, Transaction } from '@solana/web3.js';
+import { PublicKey, Transaction, Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 // Mock fetch globally
 global.fetch = jest.fn();
@@ -2528,4 +2529,332 @@ describe('HeliusClient', () => {
       );
     });
   });
+});
+
+describe('HeliusClient Transfer Methods', () => {
+    let client: HeliusClient;
+    let mockKeypair: Keypair;
+    let mockToPublicKey: PublicKey;
+    let mockMint: PublicKey;
+
+    beforeEach(() => {
+        client = new HeliusClient({
+            apiKey: 'test-api-key',
+            rpcUrl: 'https://test.helius-rpc.com',
+            enhancedApiUrl: 'https://test.api.helius.xyz/v0'
+        });
+
+        // Create mock keypair and public keys
+        mockKeypair = Keypair.generate();
+        mockToPublicKey = new PublicKey('11111111111111111111111111111111');
+        mockMint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC mint
+
+        // Reset fetch mock
+        (fetch as jest.Mock).mockReset();
+    });
+
+    describe('sendNativeTransfer', () => {
+        it('should send native SOL transfer successfully', async () => {
+            const mockSignature = 'test-signature-123';
+            const amount = 1000000; // 0.001 SOL
+
+            // Mock getLatestBlockhash for transaction signing
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: '11111111111111111111111111111111',
+                lastValidBlockHeight: 1000
+            });
+            
+            // Mock the sendTransaction method
+            jest.spyOn(client, 'sendTransaction').mockResolvedValue(mockSignature);
+
+            const result = await client.sendNativeTransfer(
+                mockKeypair,
+                mockToPublicKey,
+                amount
+            );
+
+            expect(result).toBe(mockSignature);
+            expect(client.getLatestBlockhash).toHaveBeenCalled();
+            expect(client.sendTransaction).toHaveBeenCalledWith(
+                expect.any(Transaction),
+                {}
+            );
+
+            // Verify the transaction was constructed correctly
+            const transactionCall = (client.sendTransaction as jest.Mock).mock.calls[0][0];
+            expect(transactionCall.instructions).toHaveLength(1);
+            expect(transactionCall.instructions[0].programId.toString()).toBe('11111111111111111111111111111111'); // System Program
+        });
+
+        it('should send native SOL transfer with custom options', async () => {
+            const mockSignature = 'test-signature-456';
+            const amount = 2000000; // 0.002 SOL
+            const options = {
+                skipPreflight: true,
+                preflightCommitment: 'finalized' as const
+            };
+
+            // Mock getLatestBlockhash for transaction signing
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: '11111111111111111111111111111111',
+                lastValidBlockHeight: 1000
+            });
+            
+            jest.spyOn(client, 'sendTransaction').mockResolvedValue(mockSignature);
+
+            const result = await client.sendNativeTransfer(
+                mockKeypair,
+                mockToPublicKey,
+                amount,
+                options
+            );
+
+            expect(result).toBe(mockSignature);
+            expect(client.sendTransaction).toHaveBeenCalledWith(
+                expect.any(Transaction),
+                options
+            );
+        });
+
+        it('should handle sendTransaction errors', async () => {
+            const error = new Error('Transaction failed');
+            
+            // Mock getLatestBlockhash for transaction signing
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: '11111111111111111111111111111111',
+                lastValidBlockHeight: 1000
+            });
+            
+            jest.spyOn(client, 'sendTransaction').mockRejectedValue(error);
+
+            await expect(
+                client.sendNativeTransfer(mockKeypair, mockToPublicKey, 1000000)
+            ).rejects.toThrow('Transaction failed');
+        });
+    });
+
+    describe('sendTokenTransfer', () => {
+        it('should send SPL token transfer successfully', async () => {
+            const mockSignature = 'token-signature-123';
+            const amount = 1000000; // 1 USDC
+            const mockTokenAccount = {
+                context: { slot: 1 },
+                value: [{
+                    pubkey: '11111111111111111111111111111111',
+                    account: {
+                        data: {
+                            parsed: {
+                                info: {
+                                    mint: mockMint.toString(),
+                                    owner: mockKeypair.publicKey.toString(),
+                                    amount: '1000000'
+                                }
+                            }
+                        },
+                        owner: TOKEN_PROGRAM_ID.toString(),
+                        lamports: 1000000,
+                        executable: false,
+                        rentEpoch: 0
+                    }
+                }]
+            };
+
+            // Mock getLatestBlockhash for transaction signing
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: '11111111111111111111111111111111',
+                lastValidBlockHeight: 1000
+            });
+            
+            // Mock getTokenAccount to return a valid token account
+            jest.spyOn(client, 'getTokenAccount').mockResolvedValue(mockTokenAccount);
+            jest.spyOn(client, 'sendTransaction').mockResolvedValue(mockSignature);
+
+            const result = await client.sendTokenTransfer(
+                mockToPublicKey,
+                mockKeypair,
+                amount,
+                mockMint
+            );
+
+            expect(result).toBe(mockSignature);
+            expect(client.getLatestBlockhash).toHaveBeenCalled();
+            expect(client.getTokenAccount).toHaveBeenCalledWith(mockKeypair.publicKey, mockMint);
+            expect(client.sendTransaction).toHaveBeenCalledWith(
+                expect.any(Transaction),
+                {}
+            );
+
+            // Verify the transaction was constructed correctly
+            const transactionCall = (client.sendTransaction as jest.Mock).mock.calls[0][0];
+            expect(transactionCall.instructions).toHaveLength(1);
+            expect(transactionCall.instructions[0].programId.toString()).toBe(TOKEN_PROGRAM_ID.toString());
+        });
+
+        it('should send SPL token transfer with custom options', async () => {
+            const mockSignature = 'token-signature-456';
+            const amount = 2000000; // 2 USDC
+            const options = {
+                skipPreflight: false,
+                preflightCommitment: 'confirmed' as const
+            };
+            const mockTokenAccount = {
+                context: { slot: 1 },
+                value: [{
+                    pubkey: '11111111111111111111111111111112',
+                    account: {
+                        data: {
+                            parsed: {
+                                info: {
+                                    mint: mockMint.toString(),
+                                    owner: mockKeypair.publicKey.toString(),
+                                    amount: '2000000'
+                                }
+                            }
+                        },
+                        owner: TOKEN_PROGRAM_ID.toString(),
+                        lamports: 2000000,
+                        executable: false,
+                        rentEpoch: 0
+                    }
+                }]
+            };
+
+            // Mock getLatestBlockhash for transaction signing
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: '11111111111111111111111111111111',
+                lastValidBlockHeight: 1000
+            });
+            
+            jest.spyOn(client, 'getTokenAccount').mockResolvedValue(mockTokenAccount);
+            jest.spyOn(client, 'sendTransaction').mockResolvedValue(mockSignature);
+
+            const result = await client.sendTokenTransfer(
+                mockToPublicKey,
+                mockKeypair,
+                amount,
+                mockMint,
+                options
+            );
+
+            expect(result).toBe(mockSignature);
+            expect(client.sendTransaction).toHaveBeenCalledWith(
+                expect.any(Transaction),
+                options
+            );
+        });
+
+        it('should throw error when no token account found', async () => {
+            // Mock getTokenAccount to return empty result
+            jest.spyOn(client, 'getTokenAccount').mockResolvedValue({ value: [] });
+
+            await expect(
+                client.sendTokenTransfer(mockToPublicKey, mockKeypair, 1000000, mockMint)
+            ).rejects.toThrow(`No token account found for owner ${mockKeypair.publicKey.toString()} and mint ${mockMint.toString()}`);
+        });
+
+        it('should throw error when token account response is invalid', async () => {
+            // Mock getTokenAccount to return null
+            jest.spyOn(client, 'getTokenAccount').mockResolvedValue(null);
+
+            await expect(
+                client.sendTokenTransfer(mockToPublicKey, mockKeypair, 1000000, mockMint)
+            ).rejects.toThrow(`No token account found for owner ${mockKeypair.publicKey.toString()} and mint ${mockMint.toString()}`);
+        });
+
+        it('should handle getTokenAccount errors', async () => {
+            const error = new Error('Failed to get token account');
+            jest.spyOn(client, 'getTokenAccount').mockRejectedValue(error);
+
+            await expect(
+                client.sendTokenTransfer(mockToPublicKey, mockKeypair, 1000000, mockMint)
+            ).rejects.toThrow('Failed to get token account');
+        });
+
+        it('should handle sendTransaction errors', async () => {
+            const mockTokenAccount = {
+                context: { slot: 1 },
+                value: [{
+                    pubkey: '11111111111111111111111111111113',
+                    account: {
+                        data: {
+                            parsed: {
+                                info: {
+                                    mint: mockMint.toString(),
+                                    owner: mockKeypair.publicKey.toString(),
+                                    amount: '1000000'
+                                }
+                            }
+                        },
+                        owner: TOKEN_PROGRAM_ID.toString(),
+                        lamports: 1000000,
+                        executable: false,
+                        rentEpoch: 0
+                    }
+                }]
+            };
+
+            // Mock getLatestBlockhash for transaction signing
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: '11111111111111111111111111111111',
+                lastValidBlockHeight: 1000
+            });
+            
+            const error = new Error('Token transfer failed');
+            jest.spyOn(client, 'getTokenAccount').mockResolvedValue(mockTokenAccount);
+            jest.spyOn(client, 'sendTransaction').mockRejectedValue(error);
+
+            await expect(
+                client.sendTokenTransfer(mockToPublicKey, mockKeypair, 1000000, mockMint)
+            ).rejects.toThrow('Token transfer failed');
+        });
+    });
+
+    describe('Integration tests', () => {
+        it('should handle real transaction serialization', async () => {
+            const mockSignature = 'real-signature-123';
+            const amount = 1000000;
+
+            // Mock getLatestBlockhash for transaction signing
+            (fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    jsonrpc: '2.0',
+                    id: 1,
+                    result: {
+                        blockhash: '11111111111111111111111111111111',
+                        lastValidBlockHeight: 1000
+                    }
+                })
+            });
+
+            // Mock the actual RPC call
+            (fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    jsonrpc: '2.0',
+                    id: 2,
+                    result: mockSignature
+                })
+            });
+
+            const result = await client.sendNativeTransfer(
+                mockKeypair,
+                mockToPublicKey,
+                amount
+            );
+
+            expect(result).toBe(mockSignature);
+            expect(fetch).toHaveBeenCalledTimes(2);
+            expect(fetch).toHaveBeenCalledWith(
+                expect.stringContaining('test.helius-rpc.com'),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: expect.stringContaining('sendTransaction')
+                })
+            );
+        });
+
+
+    });
 }); 
