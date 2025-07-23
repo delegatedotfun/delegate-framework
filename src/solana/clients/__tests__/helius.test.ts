@@ -2715,6 +2715,48 @@ describe('HeliusClient Transfer Methods', () => {
                 client.sendNativeTransfer(mockKeypair, mockToPublicKey, 1000000)
             ).rejects.toThrow('Network timeout');
         });
+
+        it('should verify blockhash is set before signing', async () => {
+            const mockSignature = 'test-signature-blockhash-verify';
+            const mockBlockhash = '11111111111111111111111111111111'; // Valid base58 string
+            
+            // Mock getLatestBlockhash for transaction signing
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: mockBlockhash,
+                lastValidBlockHeight: 1000
+            });
+            
+            jest.spyOn(client, 'sendTransaction').mockResolvedValue(mockSignature);
+
+            await client.sendNativeTransfer(mockKeypair, mockToPublicKey, 1000000);
+
+            // Verify the transaction was constructed correctly
+            const transactionCall = (client.sendTransaction as jest.Mock).mock.calls[0][0];
+            expect(transactionCall.recentBlockhash).toBe(mockBlockhash);
+            expect(transactionCall.recentBlockhash).toBeDefined();
+            expect(transactionCall.recentBlockhash).not.toBeNull();
+        });
+
+        it('should handle invalid blockhash response', async () => {
+            // Mock getLatestBlockhash to return invalid response
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue({
+                blockhash: null,
+                lastValidBlockHeight: 1000
+            });
+
+            await expect(
+                client.sendNativeTransfer(mockKeypair, mockToPublicKey, 1000000)
+            ).rejects.toThrow('Failed to get valid blockhash after 3 attempts');
+        });
+
+        it('should handle missing blockhash response', async () => {
+            // Mock getLatestBlockhash to return undefined
+            jest.spyOn(client, 'getLatestBlockhash').mockResolvedValue(undefined);
+
+            await expect(
+                client.sendNativeTransfer(mockKeypair, mockToPublicKey, 1000000)
+            ).rejects.toThrow('Failed to get valid blockhash after 3 attempts');
+        });
     });
 
     describe('sendTokenTransfer', () => {

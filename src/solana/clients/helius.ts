@@ -62,24 +62,70 @@ export class HeliusClient {
     ): Promise<string> {
         const transaction = new SolanaTransaction();
         
-        // Get recent blockhash
-        const { blockhash } = await this.getLatestBlockhash();
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = from.publicKey;
-        
-        // Add transfer instruction
-        transaction.add(
-            SystemProgram.transfer({
-                fromPubkey: from.publicKey,
-                toPubkey: to,
-                lamports: amount,
-            })
-        );
+        try {
+            // Get recent blockhash first
+            this.logger?.debug('Fetching recent blockhash for native transfer...');
+            const blockhashResponse = await this.getLatestBlockhashWithRetry();
+            
+            if (!blockhashResponse) {
+                throw new Error('getLatestBlockhash returned null/undefined');
+            }
+            
+            if (!blockhashResponse.blockhash) {
+                throw new Error(`getLatestBlockhash returned invalid response: ${JSON.stringify(blockhashResponse)}`);
+            }
+            
+            if (typeof blockhashResponse.blockhash !== 'string') {
+                throw new Error(`Blockhash is not a string: ${typeof blockhashResponse.blockhash}`);
+            }
+            
+            if (blockhashResponse.blockhash.length === 0) {
+                throw new Error('Blockhash is empty string');
+            }
+            
+            // Validate blockhash format (base58, typical length)
+            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhashResponse.blockhash)) {
+                throw new Error(`Invalid blockhash format: ${blockhashResponse.blockhash}`);
+            }
+            
+            this.logger?.debug(`Blockhash obtained: ${blockhashResponse.blockhash}`);
+            
+            // Set fee payer first
+            transaction.feePayer = from.publicKey;
+            
+            // Add transfer instruction
+            transaction.add(
+                SystemProgram.transfer({
+                    fromPubkey: from.publicKey,
+                    toPubkey: to,
+                    lamports: amount,
+                })
+            );
+            
+            // Set the blockhash AFTER adding instructions
+            transaction.recentBlockhash = blockhashResponse.blockhash;
+            
+            // Verify transaction state before signing
+            this.logger?.debug('Transaction state before signing:', {
+                hasBlockhash: !!transaction.recentBlockhash,
+                blockhash: transaction.recentBlockhash,
+                feePayer: transaction.feePayer?.toString(),
+                instructions: transaction.instructions.length
+            });
 
-        // Sign the transaction
-        transaction.sign(from);
+            // Verify blockhash is set before signing
+            if (!transaction.recentBlockhash) {
+                throw new Error('Transaction blockhash not set before signing');
+            }
 
-        return this.sendTransaction(transaction, options);
+            // Sign the transaction
+            transaction.sign(from);
+
+            return this.sendTransaction(transaction, options);
+        } catch (error) {
+            this.logger?.error('Error in sendNativeTransfer:', error);
+            throw error;
+        }
     }
 
     /**
@@ -100,36 +146,82 @@ export class HeliusClient {
     ): Promise<string> {
         const transaction = new SolanaTransaction();
         
-        // Get the source token account for this owner and mint
-        const sourceTokenAccount = await this.getTokenAccount(owner.publicKey, mint);
-        
-        if (!sourceTokenAccount || !sourceTokenAccount.value || sourceTokenAccount.value.length === 0) {
-            throw new Error(`No token account found for owner ${owner.publicKey.toString()} and mint ${mint.toString()}`);
+        try {
+            // Get the source token account for this owner and mint
+            const sourceTokenAccount = await this.getTokenAccount(owner.publicKey, mint);
+            
+            if (!sourceTokenAccount || !sourceTokenAccount.value || sourceTokenAccount.value.length === 0) {
+                throw new Error(`No token account found for owner ${owner.publicKey.toString()} and mint ${mint.toString()}`);
+            }
+            
+            const fromTokenAccount = new PublicKey(sourceTokenAccount.value[0].pubkey);
+            
+            // Get recent blockhash first
+            this.logger?.debug('Fetching recent blockhash for token transfer...');
+            const blockhashResponse = await this.getLatestBlockhashWithRetry();
+            
+            if (!blockhashResponse) {
+                throw new Error('getLatestBlockhash returned null/undefined');
+            }
+            
+            if (!blockhashResponse.blockhash) {
+                throw new Error(`getLatestBlockhash returned invalid response: ${JSON.stringify(blockhashResponse)}`);
+            }
+            
+            if (typeof blockhashResponse.blockhash !== 'string') {
+                throw new Error(`Blockhash is not a string: ${typeof blockhashResponse.blockhash}`);
+            }
+            
+            if (blockhashResponse.blockhash.length === 0) {
+                throw new Error('Blockhash is empty string');
+            }
+            
+            // Validate blockhash format (base58, typical length)
+            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhashResponse.blockhash)) {
+                throw new Error(`Invalid blockhash format: ${blockhashResponse.blockhash}`);
+            }
+            
+            this.logger?.debug(`Blockhash obtained: ${blockhashResponse.blockhash}`);
+            
+            // Set fee payer first
+            transaction.feePayer = owner.publicKey;
+            
+            // Add token transfer instruction
+            transaction.add(
+                createTransferInstruction(
+                    fromTokenAccount,
+                    to,
+                    owner.publicKey,
+                    amount,
+                    [],
+                    TOKEN_PROGRAM_ID
+                )
+            );
+            
+            // Set the blockhash AFTER adding instructions
+            transaction.recentBlockhash = blockhashResponse.blockhash;
+            
+            // Verify transaction state before signing
+            this.logger?.debug('Transaction state before signing:', {
+                hasBlockhash: !!transaction.recentBlockhash,
+                blockhash: transaction.recentBlockhash,
+                feePayer: transaction.feePayer?.toString(),
+                instructions: transaction.instructions.length
+            });
+
+            // Verify blockhash is set before signing
+            if (!transaction.recentBlockhash) {
+                throw new Error('Transaction blockhash not set before signing');
+            }
+
+            // Sign the transaction
+            transaction.sign(owner);
+
+            return this.sendTransaction(transaction, options);
+        } catch (error) {
+            this.logger?.error('Error in sendTokenTransfer:', error);
+            throw error;
         }
-        
-        const fromTokenAccount = new PublicKey(sourceTokenAccount.value[0].pubkey);
-        
-        // Get recent blockhash
-        const { blockhash } = await this.getLatestBlockhash();
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = owner.publicKey;
-        
-        // Add token transfer instruction
-        transaction.add(
-            createTransferInstruction(
-                fromTokenAccount,
-                to,
-                owner.publicKey,
-                amount,
-                [],
-                TOKEN_PROGRAM_ID
-            )
-        );
-
-        // Sign the transaction
-        transaction.sign(owner);
-
-        return this.sendTransaction(transaction, options);
     }
 
     /**
@@ -431,6 +523,42 @@ export class HeliusClient {
             commitment: options.commitment || 'processed',
             minContextSlot: options.minContextSlot || 1000,
         }]);
+    }
+
+    /**
+     * Get latest blockhash with retry mechanism
+     * @param options - Optional configuration for blockhash retrieval
+     * @param maxAttempts - Maximum number of retry attempts (default: 3)
+     * @returns Latest blockhash information
+     */
+    public async getLatestBlockhashWithRetry(options: GetLatestBlockhashOptions = {}, maxAttempts: number = 3): Promise<any> {
+        let lastError: Error | undefined;
+        
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                this.logger?.debug(`Blockhash attempt ${attempt}/${maxAttempts}...`);
+                const blockhashResponse = await this.getLatestBlockhash(options);
+                
+                if (blockhashResponse && blockhashResponse.blockhash) {
+                    this.logger?.debug(`Blockhash obtained on attempt ${attempt}`);
+                    return blockhashResponse;
+                }
+                
+                throw new Error(`Invalid blockhash response on attempt ${attempt}`);
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                this.logger?.warn(`Blockhash attempt ${attempt} failed:`, lastError);
+                
+                if (attempt < maxAttempts) {
+                    // Wait before retrying (exponential backoff)
+                    const delay = Math.pow(2, attempt - 1) * 1000;
+                    this.logger?.debug(`Waiting ${delay}ms before retry...`);
+                    await this.delay(delay);
+                }
+            }
+        }
+        
+        throw new Error(`Failed to get valid blockhash after ${maxAttempts} attempts. Last error: ${lastError?.message}`);
     }
 
     /**
