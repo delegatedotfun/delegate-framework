@@ -491,10 +491,15 @@ export class HeliusClient {
      * @returns Token account
      */
     public async getTokenAccount(publicKey: PublicKey, mint: PublicKey): Promise<any> {
-        return this.makeRequest('getTokenAccounts', [{
-            mint: mint.toString(),
-            owner: publicKey.toString()
-        }]);
+        return this.makeRequest('getTokenAccountsByOwner', [
+            publicKey.toString(),
+            {
+                mint: mint.toString()
+            },
+            {
+                encoding: 'base64'
+            }
+        ]);
     }
 
     /**
@@ -503,9 +508,15 @@ export class HeliusClient {
      * @returns Token accounts
      */
     public async getTokenAccounts(publicKey: PublicKey): Promise<any> {
-        return this.makeRequest('getTokenAccounts', [{
-            owner: publicKey.toString()
-        }]);
+        return this.makeRequest('getTokenAccountsByOwner', [
+            publicKey.toString(),
+            {
+                programId: TOKEN_PROGRAM_ID.toString()
+            },
+            {
+                encoding: 'base64'
+            }
+        ]);
     }
 
     /**
