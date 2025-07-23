@@ -63,37 +63,46 @@ export class HeliusClient {
         const transaction = new SolanaTransaction();
         
         try {
-            // Get recent blockhash first
+            // Get recent blockhash with retry mechanism
             this.logger?.debug('Fetching recent blockhash for native transfer...');
             const blockhashResponse = await this.getLatestBlockhashWithRetry();
             
-            if (!blockhashResponse) {
-                throw new Error('getLatestBlockhash returned null/undefined');
+            // Extract blockhash from the correct response structure
+            let blockhash: string;
+            
+            if (blockhashResponse?.value?.blockhash) {
+                // JSON-RPC response structure: { value: { blockhash: "...", lastValidBlockHeight: ... } }
+                blockhash = blockhashResponse.value.blockhash;
+            } else if (blockhashResponse?.blockhash) {
+                // Direct blockhash property (backward compatibility)
+                blockhash = blockhashResponse.blockhash;
+            } else {
+                throw new Error(`Invalid blockhash response structure: ${JSON.stringify(blockhashResponse)}`);
             }
             
-            if (!blockhashResponse.blockhash) {
-                throw new Error(`getLatestBlockhash returned invalid response: ${JSON.stringify(blockhashResponse)}`);
+            // Comprehensive validation
+            if (!blockhash) {
+                throw new Error('Blockhash is null or undefined');
             }
             
-            if (typeof blockhashResponse.blockhash !== 'string') {
-                throw new Error(`Blockhash is not a string: ${typeof blockhashResponse.blockhash}`);
+            if (typeof blockhash !== 'string') {
+                throw new Error(`Blockhash is not a string: ${typeof blockhash}`);
             }
             
-            if (blockhashResponse.blockhash.length === 0) {
+            if (blockhash.length === 0) {
                 throw new Error('Blockhash is empty string');
             }
             
             // Validate blockhash format (base58, typical length)
-            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhashResponse.blockhash)) {
-                throw new Error(`Invalid blockhash format: ${blockhashResponse.blockhash}`);
+            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhash)) {
+                throw new Error(`Invalid blockhash format: ${blockhash}`);
             }
             
-            this.logger?.debug(`Blockhash obtained: ${blockhashResponse.blockhash}`);
+            this.logger?.debug(`Blockhash obtained: ${blockhash}`);
             
-            // Set fee payer first
+            // CORRECT ORDER: Set fee payer first, then add instructions, then set blockhash
             transaction.feePayer = from.publicKey;
             
-            // Add transfer instruction
             transaction.add(
                 SystemProgram.transfer({
                     fromPubkey: from.publicKey,
@@ -103,7 +112,7 @@ export class HeliusClient {
             );
             
             // Set the blockhash AFTER adding instructions
-            transaction.recentBlockhash = blockhashResponse.blockhash;
+            transaction.recentBlockhash = blockhash;
             
             // Verify transaction state before signing
             this.logger?.debug('Transaction state before signing:', {
@@ -156,32 +165,42 @@ export class HeliusClient {
             
             const fromTokenAccount = new PublicKey(sourceTokenAccount.value[0].pubkey);
             
-            // Get recent blockhash first
+            // Get recent blockhash with retry mechanism
             this.logger?.debug('Fetching recent blockhash for token transfer...');
             const blockhashResponse = await this.getLatestBlockhashWithRetry();
             
-            if (!blockhashResponse) {
-                throw new Error('getLatestBlockhash returned null/undefined');
+            // Extract blockhash from the correct response structure
+            let blockhash: string;
+            
+            if (blockhashResponse?.value?.blockhash) {
+                // JSON-RPC response structure: { value: { blockhash: "...", lastValidBlockHeight: ... } }
+                blockhash = blockhashResponse.value.blockhash;
+            } else if (blockhashResponse?.blockhash) {
+                // Direct blockhash property (backward compatibility)
+                blockhash = blockhashResponse.blockhash;
+            } else {
+                throw new Error(`Invalid blockhash response structure: ${JSON.stringify(blockhashResponse)}`);
             }
             
-            if (!blockhashResponse.blockhash) {
-                throw new Error(`getLatestBlockhash returned invalid response: ${JSON.stringify(blockhashResponse)}`);
+            // Comprehensive validation
+            if (!blockhash) {
+                throw new Error('Blockhash is null or undefined');
             }
             
-            if (typeof blockhashResponse.blockhash !== 'string') {
-                throw new Error(`Blockhash is not a string: ${typeof blockhashResponse.blockhash}`);
+            if (typeof blockhash !== 'string') {
+                throw new Error(`Blockhash is not a string: ${typeof blockhash}`);
             }
             
-            if (blockhashResponse.blockhash.length === 0) {
+            if (blockhash.length === 0) {
                 throw new Error('Blockhash is empty string');
             }
             
             // Validate blockhash format (base58, typical length)
-            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhashResponse.blockhash)) {
-                throw new Error(`Invalid blockhash format: ${blockhashResponse.blockhash}`);
+            if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhash)) {
+                throw new Error(`Invalid blockhash format: ${blockhash}`);
             }
             
-            this.logger?.debug(`Blockhash obtained: ${blockhashResponse.blockhash}`);
+            this.logger?.debug(`Blockhash obtained: ${blockhash}`);
             
             // Set fee payer first
             transaction.feePayer = owner.publicKey;
@@ -199,7 +218,7 @@ export class HeliusClient {
             );
             
             // Set the blockhash AFTER adding instructions
-            transaction.recentBlockhash = blockhashResponse.blockhash;
+            transaction.recentBlockhash = blockhash;
             
             // Verify transaction state before signing
             this.logger?.debug('Transaction state before signing:', {
@@ -539,12 +558,22 @@ export class HeliusClient {
                 this.logger?.debug(`Blockhash attempt ${attempt}/${maxAttempts}...`);
                 const blockhashResponse = await this.getLatestBlockhash(options);
                 
-                if (blockhashResponse && blockhashResponse.blockhash) {
-                    this.logger?.debug(`Blockhash obtained on attempt ${attempt}`);
+                // Log the actual response structure for debugging
+                this.logger?.debug(`Blockhash response structure:`, JSON.stringify(blockhashResponse, null, 2));
+                
+                // Check for the correct JSON-RPC response structure
+                if (blockhashResponse && blockhashResponse.value && blockhashResponse.value.blockhash) {
+                    this.logger?.debug(`Blockhash obtained on attempt ${attempt}: ${blockhashResponse.value.blockhash}`);
                     return blockhashResponse;
                 }
                 
-                throw new Error(`Invalid blockhash response on attempt ${attempt}`);
+                // Also check for direct blockhash property (backward compatibility)
+                if (blockhashResponse && blockhashResponse.blockhash) {
+                    this.logger?.debug(`Blockhash obtained on attempt ${attempt} (direct): ${blockhashResponse.blockhash}`);
+                    return blockhashResponse;
+                }
+                
+                throw new Error(`Invalid blockhash response structure on attempt ${attempt}: ${JSON.stringify(blockhashResponse)}`);
             } catch (error) {
                 lastError = error instanceof Error ? error : new Error(String(error));
                 this.logger?.warn(`Blockhash attempt ${attempt} failed:`, lastError);
