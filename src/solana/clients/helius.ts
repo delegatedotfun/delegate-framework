@@ -475,123 +475,184 @@ export class HeliusClient {
      * @returns Array of all Transaction objects
      */
     public async getAllTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<Transaction[]> {
-                    // Log initial rate limit status
-            const initialRateLimit = this.getRateLimitInfo();
-            this.logger?.info(`Starting getAllTransactions: fetching all transactions in batches of ${options.limit || 100}`, {
-                publicKey: publicKey.toString(),
-                batchLimit: options.limit || 100,
-                initialRateLimit,
-                debugMode: options.debug || false
-            });
+        // Log initial rate limit status
+        const initialRateLimit = this.getRateLimitInfo();
+        this.logger?.info(`Starting getAllTransactions: fetching all transactions in batches of ${options.limit || 100}`, {
+            publicKey: publicKey.toString(),
+            batchLimit: options.limit || 100,
+            initialRateLimit,
+            debugMode: options.debug || false
+        });
         
         const allTransactions: Transaction[] = [];
         const batchLimit = options.limit || 100; // Default batch size
+        let batchCount = 0;
+        let consecutiveEmptyBatches = 0;
+        const maxConsecutiveEmptyBatches = 3; // Stop after 3 consecutive empty batches
 
         // For backward pagination, we track the oldest signature for next batch
         let paginationSignature: string | null = null;
         let isFirstBatch = true;
 
         while (true) {
+            batchCount++;
             const batchOptions: GetTransactionsOptions = {
-                ...options,
                 limit: batchLimit
             };
 
-            // Handle backward pagination
+            // Handle backward pagination - CRITICAL FIX: Don't use user's before/until for first batch
+            // if we want to get ALL transactions from the beginning
             if (paginationSignature) {
                 batchOptions.before = paginationSignature;
-                // Remove the original until parameter for subsequent batches
-                delete batchOptions.until;
+            } else if (options.before || options.until) {
+                // If user provided before/until, use it for the first batch only
+                if (options.before) batchOptions.before = options.before;
+                if (options.until) batchOptions.until = options.until;
             }
-            // For the first batch, keep the original 'before' or 'until' parameter
+            // If no pagination parameters, start from the most recent (default behavior)
 
             // Debug logging for getAllTransactions batch start
             if (options.debug) {
-                this.debugLog(`Starting getAllTransactions batch:`, {
-                    batchNumber: isFirstBatch ? 'first' : 'subsequent',
+                this.debugLog(`Starting getAllTransactions batch ${batchCount}:`, {
+                    batchNumber: batchCount,
                     requestedLimit: batchLimit,
                     totalRetrieved: allTransactions.length,
                     paginationSignature: paginationSignature || 'none',
-                    isFirstBatch
+                    isFirstBatch,
+                    userBefore: options.before || 'none',
+                    userUntil: options.until || 'none'
                 });
             }
 
             // Check rate limit before each batch
             const batchRateLimit = this.getRateLimitInfo();
             if (batchRateLimit.remaining >= 0 && batchRateLimit.remaining < 5) {
-                this.logger?.warn(`Very low rate limit before getAllTransactions batch: ${batchRateLimit.remaining}/${batchRateLimit.limit} remaining`);
+                this.logger?.warn(`Very low rate limit before getAllTransactions batch ${batchCount}: ${batchRateLimit.remaining}/${batchRateLimit.limit} remaining`);
             }
 
-            const transactions = await this.getTransactions(publicKey, batchOptions);
+            try {
+                const transactions = await this.getTransactions(publicKey, batchOptions);
 
-            if (transactions && transactions.length > 0) {
-                this.logger?.debug(`Fetched batch of ${transactions.length} transactions`);
-                
-                // For subsequent batches, we need to handle potential overlap
-                // The 'before' parameter is exclusive, so we might have gaps
-                if (!isFirstBatch && allTransactions.length > 0) {
-                    const lastPreviousTransaction = allTransactions[allTransactions.length - 1];
-                    const firstCurrentTransaction = transactions[0];
+                if (transactions && transactions.length > 0) {
+                    // Reset consecutive empty batches counter
+                    consecutiveEmptyBatches = 0;
                     
-                    if (lastPreviousTransaction && firstCurrentTransaction) {
-                        const lastPreviousSignature = lastPreviousTransaction.signature;
-                        const firstCurrentSignature = firstCurrentTransaction.signature;
+                    this.logger?.debug(`Fetched batch ${batchCount} of ${transactions.length} transactions`);
+                    
+                    // For subsequent batches, we need to handle potential overlap
+                    // The 'before' parameter is exclusive, so we might have gaps
+                    if (!isFirstBatch && allTransactions.length > 0) {
+                        const lastPreviousTransaction = allTransactions[allTransactions.length - 1];
+                        const firstCurrentTransaction = transactions[0];
                         
-                        // Check if there's a gap between batches
-                        if (lastPreviousSignature !== firstCurrentSignature) {
-                            this.logger?.warn(`Potential gap detected between batches. Last previous: ${lastPreviousSignature}, First current: ${firstCurrentSignature}`);
+                        if (lastPreviousTransaction && firstCurrentTransaction) {
+                            const lastPreviousSignature = lastPreviousTransaction.signature;
+                            const firstCurrentSignature = firstCurrentTransaction.signature;
+                            
+                            // Check if there's a gap between batches
+                            if (lastPreviousSignature !== firstCurrentSignature) {
+                                this.logger?.warn(`Gap detected between batches ${batchCount - 1} and ${batchCount}. Last previous: ${lastPreviousSignature}, First current: ${firstCurrentSignature}`);
+                                
+                                // Try to fill the gap by requesting transactions between these signatures
+                                try {
+                                    const gapOptions: GetTransactionsOptions = {
+                                        limit: Math.min(100, batchLimit * 2), // Use larger limit for gap filling
+                                        before: lastPreviousSignature,
+                                        until: firstCurrentSignature
+                                    };
+                                    
+                                    this.logger?.debug(`Attempting to fill gap with until parameter: ${firstCurrentSignature}`);
+                                    const gapTransactions = await this.getTransactions(publicKey, gapOptions);
+                                    
+                                    if (gapTransactions && gapTransactions.length > 0) {
+                                        this.logger?.info(`Successfully filled gap with ${gapTransactions.length} transactions`);
+                                        allTransactions.push(...gapTransactions);
+                                    }
+                                } catch (gapError) {
+                                    this.logger?.warn('Failed to fill gap:', gapError);
+                                }
+                            }
                         }
                     }
-                }
-                
-                allTransactions.push(...transactions);
-                isFirstBatch = false;
-                
-                // Debug logging for getAllTransactions batch completion
-                if (options.debug && transactions.length > 0) {
-                    const firstTransaction = transactions[0];
-                    const lastTransaction = transactions[transactions.length - 1];
                     
-                    if (firstTransaction && lastTransaction) {
-                        this.debugLog(`getAllTransactions batch completed:`, {
-                            batchSize: transactions.length,
-                            firstSignature: firstTransaction.signature,
-                            lastSignature: lastTransaction.signature,
-                            firstSlot: firstTransaction.slot,
-                            lastSlot: lastTransaction.slot,
-                            firstTimestamp: new Date(firstTransaction.timestamp * 1000).toISOString(),
-                            lastTimestamp: new Date(lastTransaction.timestamp * 1000).toISOString(),
-                            totalRetrieved: allTransactions.length,
-                            isFirstBatch: false
-                        });
+                    allTransactions.push(...transactions);
+                    isFirstBatch = false;
+                    
+                    // Debug logging for getAllTransactions batch completion
+                    if (options.debug && transactions.length > 0) {
+                        const firstTransaction = transactions[0];
+                        const lastTransaction = transactions[transactions.length - 1];
+                        
+                        if (firstTransaction && lastTransaction) {
+                            this.debugLog(`getAllTransactions batch ${batchCount} completed:`, {
+                                batchNumber: batchCount,
+                                batchSize: transactions.length,
+                                firstSignature: firstTransaction.signature,
+                                lastSignature: lastTransaction.signature,
+                                firstSlot: firstTransaction.slot,
+                                lastSlot: lastTransaction.slot,
+                                firstTimestamp: new Date(firstTransaction.timestamp * 1000).toISOString(),
+                                lastTimestamp: new Date(lastTransaction.timestamp * 1000).toISOString(),
+                                totalRetrieved: allTransactions.length,
+                                isFirstBatch: false
+                            });
+                        }
                     }
+                    
+                    // Update pagination signature for backward pagination
+                    // Use the oldest transaction signature for the next 'before' parameter
+                    const lastTransaction = transactions[transactions.length - 1];
+                    if (lastTransaction) {
+                        paginationSignature = lastTransaction.signature;
+                        this.logger?.debug(`Batch ${batchCount}: Next pagination signature: ${paginationSignature}`);
+                    }
+                    
+                    // If we got fewer transactions than requested, we've reached the end
+                    if (transactions.length < batchLimit) {
+                        this.logger?.debug(`Batch ${batchCount}: Reached end of transactions (got ${transactions.length} < ${batchLimit})`);
+                        break;
+                    }
+                } else {
+                    consecutiveEmptyBatches++;
+                    this.logger?.warn(`Batch ${batchCount}: No transactions found. Consecutive empty batches: ${consecutiveEmptyBatches}`);
+                    
+                    // If we've had multiple consecutive empty batches, we might be at the end
+                    if (consecutiveEmptyBatches >= maxConsecutiveEmptyBatches) {
+                        this.logger?.warn(`Stopping after ${maxConsecutiveEmptyBatches} consecutive empty batches`);
+                        break;
+                    }
+                    
+                    // Wait before retrying
+                    await this.delay(Math.pow(2, consecutiveEmptyBatches) * 1000);
                 }
+            } catch (error) {
+                this.logger?.error(`Batch ${batchCount} failed:`, error);
+                consecutiveEmptyBatches++;
                 
-                // Update pagination signature for backward pagination
-                // Use the oldest transaction signature for the next 'before' parameter
-                const lastTransaction = transactions[transactions.length - 1];
-                if (lastTransaction) {
-                    paginationSignature = lastTransaction.signature;
-                    this.logger?.debug(`Next pagination signature: ${paginationSignature}`);
-                }
-                
-                // If we got fewer transactions than requested, we've reached the end
-                if (transactions.length < batchLimit) {
-                    this.logger?.debug(`Reached end of transactions (got ${transactions.length} < ${batchLimit})`);
+                if (consecutiveEmptyBatches >= maxConsecutiveEmptyBatches) {
+                    this.logger?.error(`Stopping after ${maxConsecutiveEmptyBatches} consecutive failures`);
                     break;
                 }
-            } else {
-                this.logger?.debug('No more transactions found');
-                break;
+                
+                // Wait before retrying
+                await this.delay(Math.pow(2, consecutiveEmptyBatches) * 1000);
             }
         }
 
         // Log final rate limit status
         const finalRateLimit = this.getRateLimitInfo();
-        this.logger?.info(`Finished fetching all transactions. Total: ${allTransactions.length}`, {
+        this.logger?.info(`Finished fetching all transactions. Total: ${allTransactions.length} in ${batchCount} batches`, {
             finalRateLimit,
-            totalTransactions: allTransactions.length
+            totalTransactions: allTransactions.length,
+            batchesProcessed: batchCount,
+            consecutiveEmptyBatches
         });
+        
+        // Log a warning if we didn't get many transactions
+        if (allTransactions.length < batchLimit * 2) {
+            this.logger?.warn(`Only retrieved ${allTransactions.length} transactions. This might indicate limited transaction history or pagination issues.`);
+        }
+        
         return allTransactions;
     }
 

@@ -672,7 +672,8 @@ describe('HeliusClient', () => {
     it('should handle empty result in getAllTransactions', async () => {
       const mockResponse: any[] = [];
 
-      mockFetch.mockResolvedValueOnce({
+      // Mock multiple calls for retry logic (3 consecutive empty batches)
+      mockFetch.mockResolvedValue({
         ok: true,
         json: async () => mockResponse,
       } as Response);
@@ -681,11 +682,13 @@ describe('HeliusClient', () => {
       const allTransactions = await client.getAllTransactions(publicKey);
 
       expect(allTransactions).toEqual([]);
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      // Should be called multiple times due to retry logic
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('should handle API errors in getAllTransactions', async () => {
-      mockFetch.mockResolvedValueOnce({
+      // Mock multiple failed calls to trigger retry exhaustion
+      mockFetch.mockResolvedValue({
         ok: false,
         status: 400,
         statusText: 'Bad Request',
@@ -693,15 +696,24 @@ describe('HeliusClient', () => {
 
       const publicKey = new PublicKey('11111111111111111111111111111111');
 
-      await expect(client.getAllTransactions(publicKey)).rejects.toThrow('Network Error');
+      // The method should return empty array after retries, not throw
+      const result = await client.getAllTransactions(publicKey);
+      expect(result).toEqual([]);
+      // Should be called multiple times due to retry logic (6 calls = 3 batches with 2 calls each)
+      expect(mockFetch).toHaveBeenCalledTimes(6);
     });
 
     it('should handle network errors in getAllTransactions', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+      // Mock multiple network errors to trigger retry exhaustion
+      mockFetch.mockRejectedValue(new Error('Network error'));
 
       const publicKey = new PublicKey('11111111111111111111111111111111');
 
-      await expect(client.getAllTransactions(publicKey)).rejects.toThrow('Network Error');
+      // The method should return empty array after retries, not throw
+      const result = await client.getAllTransactions(publicKey);
+      expect(result).toEqual([]);
+      // Should be called multiple times due to retry logic (6 calls = 3 batches with 2 calls each)
+      expect(mockFetch).toHaveBeenCalledTimes(6);
     });
 
     it('should handle API errors for getTransactions', async () => {
