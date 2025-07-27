@@ -370,8 +370,22 @@ describe('HeliusClient', () => {
   describe('getTransactions', () => {
     it('should successfully get transactions using enhanced API endpoint', async () => {
       const mockResponse = [
-        { signature: 'sig1', slot: 12345 },
-        { signature: 'sig2', slot: 12346 }
+        { 
+          signature: 'sig1', 
+          slot: 12345, 
+          timestamp: 1640995200, 
+          description: 'Transaction 1', 
+          nativeTransfers: [], 
+          tokenTransfers: [] 
+        },
+        { 
+          signature: 'sig2', 
+          slot: 12346, 
+          timestamp: 1640995201, 
+          description: 'Transaction 2', 
+          nativeTransfers: [], 
+          tokenTransfers: [] 
+        }
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -393,7 +407,14 @@ describe('HeliusClient', () => {
     });
 
     it('should get transactions with limit option', async () => {
-      const mockResponse = [{ signature: 'sig1', slot: 12345 }];
+      const mockResponse = [{ 
+        signature: 'sig1', 
+        slot: 12345, 
+        timestamp: 1640995200, 
+        description: 'Transaction 1', 
+        nativeTransfers: [], 
+        tokenTransfers: [] 
+      }];
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -414,7 +435,14 @@ describe('HeliusClient', () => {
     });
 
     it('should get transactions with backward pagination options', async () => {
-      const mockResponse = [{ signature: 'sig2', slot: 12346 }];
+      const mockResponse = [{ 
+        signature: 'sig2', 
+        slot: 12346, 
+        timestamp: 1640995201, 
+        description: 'Transaction 2', 
+        nativeTransfers: [], 
+        tokenTransfers: [] 
+      }];
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -441,7 +469,14 @@ describe('HeliusClient', () => {
 
 
     it('should get transactions with only before parameter', async () => {
-      const mockResponse = [{ signature: 'sig2', slot: 12346 }];
+      const mockResponse = [{ 
+        signature: 'sig2', 
+        slot: 12346, 
+        timestamp: 1640995201, 
+        description: 'Transaction 2', 
+        nativeTransfers: [], 
+        tokenTransfers: [] 
+      }];
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -464,7 +499,14 @@ describe('HeliusClient', () => {
     });
 
     it('should get transactions with only until parameter', async () => {
-      const mockResponse = [{ signature: 'sig2', slot: 12346 }];
+      const mockResponse = [{ 
+        signature: 'sig2', 
+        slot: 12346, 
+        timestamp: 1640995201, 
+        description: 'Transaction 2', 
+        nativeTransfers: [], 
+        tokenTransfers: [] 
+      }];
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -2712,6 +2754,49 @@ describe('HeliusClient', () => {
       expect(analysis.batches).toBe(2);
       expect(analysis.gaps).toHaveLength(0);
       expect(analysis.recommendations).toBeDefined();
+    });
+  });
+
+  describe('getTransactions', () => {
+    it('should log debug information to console when no logger is provided and debug is enabled', async () => {
+      // Create client without logger
+      const client = new HeliusClient({
+        apiKey: 'test-api-key'
+        // No logger provided
+      });
+
+      // Mock console.log to capture output
+      const originalConsoleLog = console.log;
+      const consoleLogSpy = jest.fn();
+      console.log = consoleLogSpy;
+
+      // Mock the REST request to return sample data
+      const batch1 = [
+        { signature: 'sig1', slot: 1000, timestamp: 1640995200, description: 'tx1', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig2', slot: 999, timestamp: 1640995199, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
+      ];
+
+      // Mock the makeRestRequest method
+      const mockMakeRestRequest = jest.fn().mockResolvedValue(batch1);
+      (client as any).makeRestRequest = mockMakeRestRequest;
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const result = await client.getTransactions(publicKey, { debug: true, limit: 2 });
+
+      expect(result).toHaveLength(2);
+      
+      // Verify that console.log was called with debug information
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[DEBUG] Batch debug info:',
+        expect.objectContaining({
+          batchSize: 2,
+          firstSignature: expect.stringContaining('sig1'),
+          lastSignature: expect.stringContaining('sig2')
+        })
+      );
+
+      // Restore console.log
+      console.log = originalConsoleLog;
     });
   });
 });

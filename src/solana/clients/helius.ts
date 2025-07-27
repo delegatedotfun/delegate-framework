@@ -415,7 +415,7 @@ export class HeliusClient {
                 const firstTimestamp = new Date(firstTransaction.timestamp * 1000).toISOString();
                 const lastTimestamp = new Date(lastTransaction.timestamp * 1000).toISOString();
                 
-                this.logger?.debug(`Batch debug info:`, {
+                this.debugLog(`Batch debug info:`, {
                     batchSize: transactions.length,
                     firstSignature: `${firstSignature} (slot: ${firstSlot}, time: ${firstTimestamp})`,
                     lastSignature: `${lastSignature} (slot: ${lastSlot}, time: ${lastTimestamp})`,
@@ -425,7 +425,7 @@ export class HeliusClient {
                         limit: options.limit || 'default'
                     },
                     publicKey: publicKey.toString()
-                });
+                }, options);
             }
         }
         
@@ -483,13 +483,13 @@ export class HeliusClient {
 
             // Debug logging for getAllTransactions batch start
             if (options.debug) {
-                this.logger?.debug(`Starting getAllTransactions batch:`, {
+                this.debugLog(`Starting getAllTransactions batch:`, {
                     batchNumber: isFirstBatch ? 'first' : 'subsequent',
                     requestedLimit: batchLimit,
                     totalRetrieved: allTransactions.length,
                     paginationSignature: paginationSignature || 'none',
                     isFirstBatch
-                });
+                }, options);
             }
 
             // Check rate limit before each batch
@@ -529,7 +529,7 @@ export class HeliusClient {
                     const lastTransaction = transactions[transactions.length - 1];
                     
                     if (firstTransaction && lastTransaction) {
-                        this.logger?.debug(`getAllTransactions batch completed:`, {
+                        this.debugLog(`getAllTransactions batch completed:`, {
                             batchSize: transactions.length,
                             firstSignature: firstTransaction.signature,
                             lastSignature: lastTransaction.signature,
@@ -539,7 +539,7 @@ export class HeliusClient {
                             lastTimestamp: new Date(lastTransaction.timestamp * 1000).toISOString(),
                             totalRetrieved: allTransactions.length,
                             isFirstBatch: false
-                        });
+                        }, options);
                     }
                 }
                 
@@ -624,13 +624,13 @@ export class HeliusClient {
 
             // Debug logging for batch start
             if (options.debug) {
-                this.logger?.debug(`Starting batch ${batchCount}:`, {
+                this.debugLog(`Starting batch ${batchCount}:`, {
                     batchNumber: batchCount,
                     requestedLimit: currentBatchLimit,
                     totalRetrieved: transactions.length,
                     remainingToFetch: totalLimit - transactions.length,
                     paginationSignature: paginationSignature || 'none'
-                });
+                }, options);
             }
 
             this.logger?.debug(`Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
@@ -679,7 +679,7 @@ export class HeliusClient {
                     const lastTransaction = batchTransactions[batchTransactions.length - 1];
                     
                     if (firstTransaction && lastTransaction) {
-                        this.logger?.debug(`Batch ${batchCount} completed:`, {
+                        this.debugLog(`Batch ${batchCount} completed:`, {
                             batchNumber: batchCount,
                             batchSize: batchTransactions.length,
                             firstSignature: firstTransaction.signature,
@@ -690,7 +690,7 @@ export class HeliusClient {
                             lastTimestamp: new Date(lastTransaction.timestamp * 1000).toISOString(),
                             totalRetrieved: transactions.length,
                             progress: `${((transactions.length / totalLimit) * 100).toFixed(1)}%`
-                        });
+                        }, options);
                     }
                 }
                 
@@ -794,14 +794,14 @@ export class HeliusClient {
 
             // Debug logging for robust batch start
             if (options.debug) {
-                this.logger?.debug(`Starting robust batch ${batchCount}:`, {
+                this.debugLog(`Starting robust batch ${batchCount}:`, {
                     batchNumber: batchCount,
                     requestedLimit: currentBatchLimit,
                     totalRetrieved: transactions.length,
                     remainingToFetch: totalLimit - transactions.length,
                     paginationSignature: paginationSignature || 'none',
                     retryCount
-                });
+                }, options);
             }
 
             this.logger?.debug(`Robust Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
@@ -862,7 +862,7 @@ export class HeliusClient {
                         const lastTransaction = batchTransactions[batchTransactions.length - 1];
                         
                         if (firstTransaction && lastTransaction) {
-                            this.logger?.debug(`Robust batch ${batchCount} completed:`, {
+                            this.debugLog(`Robust batch ${batchCount} completed:`, {
                                 batchNumber: batchCount,
                                 batchSize: batchTransactions.length,
                                 firstSignature: firstTransaction.signature,
@@ -874,7 +874,7 @@ export class HeliusClient {
                                 totalRetrieved: transactions.length,
                                 progress: `${((transactions.length / totalLimit) * 100).toFixed(1)}%`,
                                 retryCount
-                            });
+                            }, options);
                         }
                     }
                     
@@ -1430,6 +1430,12 @@ export class HeliusClient {
     private extractAndLogRateLimitInfo(response: Response, requestId: number): void {
         const now = Date.now();
         
+        // Check if response and headers exist
+        if (!response || !response.headers) {
+            this.logger?.debug(`No response or headers available for rate limit logging - Request ${requestId}`);
+            return;
+        }
+        
         // Extract rate limit headers (Helius uses standard rate limit headers)
         const remaining = response.headers.get('x-ratelimit-remaining');
         const limit = response.headers.get('x-ratelimit-limit');
@@ -1505,6 +1511,22 @@ export class HeliusClient {
             usagePercentage,
             timeUntilReset
         };
+    }
+
+    /**
+     * Debug logging helper that falls back to console when no logger is provided
+     * @param message - The message to log
+     * @param data - Optional data to log
+     * @param options - Options object that may contain debug flag
+     * @private
+     */
+    private debugLog(message: string, data?: any, options?: { debug?: boolean }): void {
+        if (this.logger) {
+            this.logger.debug(message, data);
+        } else if (options?.debug) {
+            // Fallback to console when debug is enabled but no logger provided
+            console.log(`[DEBUG] ${message}`, data || '');
+        }
     }
 
     /**
