@@ -72,6 +72,7 @@ export interface GetTransactionsOptions {
     limit?: number;
     before?: string;  // Fetch transactions before this signature (backward pagination)
     until?: string;   // Fetch transactions until this signature (exclusive, backward pagination)
+    debug?: boolean;  // Enable detailed debug logging including batch signatures
 }
 
 /**

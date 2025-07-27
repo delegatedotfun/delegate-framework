@@ -402,6 +402,33 @@ export class HeliusClient {
             return item as Transaction;
         });
         
+        // Debug logging for batch signatures
+        if (options.debug && transactions.length > 0) {
+            const firstTransaction = transactions[0];
+            const lastTransaction = transactions[transactions.length - 1];
+            
+            if (firstTransaction && lastTransaction) {
+                const firstSignature = firstTransaction.signature;
+                const lastSignature = lastTransaction.signature;
+                const firstSlot = firstTransaction.slot;
+                const lastSlot = lastTransaction.slot;
+                const firstTimestamp = new Date(firstTransaction.timestamp * 1000).toISOString();
+                const lastTimestamp = new Date(lastTransaction.timestamp * 1000).toISOString();
+                
+                this.logger?.debug(`Batch debug info:`, {
+                    batchSize: transactions.length,
+                    firstSignature: `${firstSignature} (slot: ${firstSlot}, time: ${firstTimestamp})`,
+                    lastSignature: `${lastSignature} (slot: ${lastSlot}, time: ${lastTimestamp})`,
+                    paginationParams: {
+                        before: options.before || 'none',
+                        until: options.until || 'none',
+                        limit: options.limit || 'default'
+                    },
+                    publicKey: publicKey.toString()
+                });
+            }
+        }
+        
         return transactions;
     }
 
@@ -424,13 +451,14 @@ export class HeliusClient {
      * @returns Array of all Transaction objects
      */
     public async getAllTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<Transaction[]> {
-        // Log initial rate limit status
-        const initialRateLimit = this.getRateLimitInfo();
-        this.logger?.info(`Starting getAllTransactions: fetching all transactions in batches of ${options.limit || 100}`, {
-            publicKey: publicKey.toString(),
-            batchLimit: options.limit || 100,
-            initialRateLimit
-        });
+                    // Log initial rate limit status
+            const initialRateLimit = this.getRateLimitInfo();
+            this.logger?.info(`Starting getAllTransactions: fetching all transactions in batches of ${options.limit || 100}`, {
+                publicKey: publicKey.toString(),
+                batchLimit: options.limit || 100,
+                initialRateLimit,
+                debugMode: options.debug || false
+            });
         
         const allTransactions: Transaction[] = [];
         const batchLimit = options.limit || 100; // Default batch size
@@ -452,6 +480,17 @@ export class HeliusClient {
                 delete batchOptions.until;
             }
             // For the first batch, keep the original 'before' or 'until' parameter
+
+            // Debug logging for getAllTransactions batch start
+            if (options.debug) {
+                this.logger?.debug(`Starting getAllTransactions batch:`, {
+                    batchNumber: isFirstBatch ? 'first' : 'subsequent',
+                    requestedLimit: batchLimit,
+                    totalRetrieved: allTransactions.length,
+                    paginationSignature: paginationSignature || 'none',
+                    isFirstBatch
+                });
+            }
 
             // Check rate limit before each batch
             const batchRateLimit = this.getRateLimitInfo();
@@ -483,6 +522,26 @@ export class HeliusClient {
                 
                 allTransactions.push(...transactions);
                 isFirstBatch = false;
+                
+                // Debug logging for getAllTransactions batch completion
+                if (options.debug && transactions.length > 0) {
+                    const firstTransaction = transactions[0];
+                    const lastTransaction = transactions[transactions.length - 1];
+                    
+                    if (firstTransaction && lastTransaction) {
+                        this.logger?.debug(`getAllTransactions batch completed:`, {
+                            batchSize: transactions.length,
+                            firstSignature: firstTransaction.signature,
+                            lastSignature: lastTransaction.signature,
+                            firstSlot: firstTransaction.slot,
+                            lastSlot: lastTransaction.slot,
+                            firstTimestamp: new Date(firstTransaction.timestamp * 1000).toISOString(),
+                            lastTimestamp: new Date(lastTransaction.timestamp * 1000).toISOString(),
+                            totalRetrieved: allTransactions.length,
+                            isFirstBatch: false
+                        });
+                    }
+                }
                 
                 // Update pagination signature for backward pagination
                 // Use the oldest transaction signature for the next 'before' parameter
@@ -525,14 +584,15 @@ export class HeliusClient {
             throw new Error('Batch size must be between 1 and 100');
         }
         
-        // Log initial rate limit status
-        const initialRateLimit = this.getRateLimitInfo();
-        this.logger?.info(`Starting getTransactionsWithLimit: requesting ${totalLimit} transactions in batches of ${batchSize}`, {
-            publicKey: publicKey.toString(),
-            totalLimit,
-            batchSize,
-            initialRateLimit
-        });
+                    // Log initial rate limit status
+            const initialRateLimit = this.getRateLimitInfo();
+            this.logger?.info(`Starting getTransactionsWithLimit: requesting ${totalLimit} transactions in batches of ${batchSize}`, {
+                publicKey: publicKey.toString(),
+                totalLimit,
+                batchSize,
+                initialRateLimit,
+                debugMode: options.debug || false
+            });
         
         const transactions: Transaction[] = [];
         let batchCount = 0;
@@ -561,6 +621,17 @@ export class HeliusClient {
                 delete batchOptions.until;
             }
             // For the first batch, keep the original 'before' or 'until' parameter
+
+            // Debug logging for batch start
+            if (options.debug) {
+                this.logger?.debug(`Starting batch ${batchCount}:`, {
+                    batchNumber: batchCount,
+                    requestedLimit: currentBatchLimit,
+                    totalRetrieved: transactions.length,
+                    remainingToFetch: totalLimit - transactions.length,
+                    paginationSignature: paginationSignature || 'none'
+                });
+            }
 
             this.logger?.debug(`Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
 
@@ -601,6 +672,27 @@ export class HeliusClient {
                 lastBatchSize = batchTransactions.length;
                 
                 this.logger?.debug(`Batch ${batchCount}: Received ${batchTransactions.length} transactions. Total so far: ${transactions.length}`);
+                
+                // Debug logging for batch completion
+                if (options.debug && batchTransactions.length > 0) {
+                    const firstTransaction = batchTransactions[0];
+                    const lastTransaction = batchTransactions[batchTransactions.length - 1];
+                    
+                    if (firstTransaction && lastTransaction) {
+                        this.logger?.debug(`Batch ${batchCount} completed:`, {
+                            batchNumber: batchCount,
+                            batchSize: batchTransactions.length,
+                            firstSignature: firstTransaction.signature,
+                            lastSignature: lastTransaction.signature,
+                            firstSlot: firstTransaction.slot,
+                            lastSlot: lastTransaction.slot,
+                            firstTimestamp: new Date(firstTransaction.timestamp * 1000).toISOString(),
+                            lastTimestamp: new Date(lastTransaction.timestamp * 1000).toISOString(),
+                            totalRetrieved: transactions.length,
+                            progress: `${((transactions.length / totalLimit) * 100).toFixed(1)}%`
+                        });
+                    }
+                }
                 
                 // Update pagination signature for backward pagination
                 // Use the oldest transaction signature for the next 'before' parameter
@@ -667,14 +759,15 @@ export class HeliusClient {
             throw new Error('Batch size must be between 1 and 100');
         }
         
-        // Log initial rate limit status
-        const initialRateLimit = this.getRateLimitInfo();
-        this.logger?.info(`Starting getTransactionsWithLimitRobust: requesting ${totalLimit} transactions in batches of ${batchSize}`, {
-            publicKey: publicKey.toString(),
-            totalLimit,
-            batchSize,
-            initialRateLimit
-        });
+                    // Log initial rate limit status
+            const initialRateLimit = this.getRateLimitInfo();
+            this.logger?.info(`Starting getTransactionsWithLimitRobust: requesting ${totalLimit} transactions in batches of ${batchSize}`, {
+                publicKey: publicKey.toString(),
+                totalLimit,
+                batchSize,
+                initialRateLimit,
+                debugMode: options.debug || false
+            });
         
         const transactions: Transaction[] = [];
         let batchCount = 0;
@@ -697,6 +790,18 @@ export class HeliusClient {
                 batchOptions.before = paginationSignature;
                 // Remove the original until parameter for subsequent batches
                 delete batchOptions.until;
+            }
+
+            // Debug logging for robust batch start
+            if (options.debug) {
+                this.logger?.debug(`Starting robust batch ${batchCount}:`, {
+                    batchNumber: batchCount,
+                    requestedLimit: currentBatchLimit,
+                    totalRetrieved: transactions.length,
+                    remainingToFetch: totalLimit - transactions.length,
+                    paginationSignature: paginationSignature || 'none',
+                    retryCount
+                });
             }
 
             this.logger?.debug(`Robust Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
@@ -750,6 +855,28 @@ export class HeliusClient {
                     retryCount = 0; // Reset retry count on successful batch
                     
                     this.logger?.debug(`Robust Batch ${batchCount}: Received ${batchTransactions.length} transactions. Total so far: ${transactions.length}`);
+                    
+                    // Debug logging for robust batch completion
+                    if (options.debug && batchTransactions.length > 0) {
+                        const firstTransaction = batchTransactions[0];
+                        const lastTransaction = batchTransactions[batchTransactions.length - 1];
+                        
+                        if (firstTransaction && lastTransaction) {
+                            this.logger?.debug(`Robust batch ${batchCount} completed:`, {
+                                batchNumber: batchCount,
+                                batchSize: batchTransactions.length,
+                                firstSignature: firstTransaction.signature,
+                                lastSignature: lastTransaction.signature,
+                                firstSlot: firstTransaction.slot,
+                                lastSlot: lastTransaction.slot,
+                                firstTimestamp: new Date(firstTransaction.timestamp * 1000).toISOString(),
+                                lastTimestamp: new Date(lastTransaction.timestamp * 1000).toISOString(),
+                                totalRetrieved: transactions.length,
+                                progress: `${((transactions.length / totalLimit) * 100).toFixed(1)}%`,
+                                retryCount
+                            });
+                        }
+                    }
                     
                     // Update pagination signature for backward pagination
                     const lastTransaction = batchTransactions[batchTransactions.length - 1];

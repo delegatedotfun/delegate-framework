@@ -2563,6 +2563,67 @@ describe('HeliusClient', () => {
       expect(rateLimitInfo).toHaveProperty('lastUpdate');
       expect(rateLimitInfo).toHaveProperty('usagePercentage');
     });
+
+    it('should log debug information with batch signatures when debug option is enabled', async () => {
+      const client = new HeliusClient({
+        apiKey: 'test-api-key',
+        logger: mockLogger
+      });
+
+      // Mock the getTransactions method to return sample data
+      const batch1 = [
+        { signature: 'sig1', slot: 1000, timestamp: 1640995200, description: 'tx1', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig2', slot: 999, timestamp: 1640995199, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig3', slot: 998, timestamp: 1640995198, description: 'tx3', nativeTransfers: [], tokenTransfers: [] },
+      ];
+
+      const batch2 = [
+        { signature: 'sig4', slot: 997, timestamp: 1640995197, description: 'tx4', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig5', slot: 996, timestamp: 1640995196, description: 'tx5', nativeTransfers: [], tokenTransfers: [] },
+      ];
+
+      // Mock the getTransactions method directly
+      const mockGetTransactions = jest.fn()
+        .mockResolvedValueOnce(batch1)
+        .mockResolvedValueOnce(batch2);
+
+      (client as any).getTransactions = mockGetTransactions;
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const result = await client.getTransactionsWithLimit(publicKey, 5, { debug: true }, 3);
+
+      expect(result).toHaveLength(5);
+      
+      // Verify that info logging was called with debug mode information
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Starting getTransactionsWithLimit: requesting 5 transactions in batches of 3',
+        expect.objectContaining({
+          debugMode: true
+        })
+      );
+      
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Starting batch 1:',
+        expect.objectContaining({
+          batchNumber: 1,
+          requestedLimit: 3,
+          totalRetrieved: 0,
+          remainingToFetch: 5
+        })
+      );
+      
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Batch 1 completed:',
+        expect.objectContaining({
+          batchNumber: 1,
+          batchSize: 3,
+          firstSignature: 'sig1',
+          lastSignature: 'sig3',
+          firstSlot: 1000,
+          lastSlot: 998
+        })
+      );
+    });
   });
 
   describe('Transaction Pagination', () => {
