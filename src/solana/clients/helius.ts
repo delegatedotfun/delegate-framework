@@ -14,6 +14,14 @@ export class HeliusClient {
     private readonly config: Omit<Required<HeliusConfig>, 'logger'> & { logger?: Logger };
     private readonly logger?: Logger;
     private requestId = 0;
+    
+    // Rate limit tracking
+    private rateLimitInfo = {
+        remaining: -1,
+        limit: -1,
+        reset: -1,
+        lastUpdate: 0
+    };
 
     constructor(config: HeliusConfig) {
         this.config = {
@@ -317,6 +325,12 @@ export class HeliusClient {
      * @returns Array of Transaction objects
      */
     public async getTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<Transaction[]> {
+        // Log rate limit status before making request
+        const rateLimitInfo = this.getRateLimitInfo();
+        if (rateLimitInfo.remaining >= 0 && rateLimitInfo.remaining < 10) {
+            this.logger?.warn(`Low rate limit remaining before getTransactions: ${rateLimitInfo.remaining}/${rateLimitInfo.limit} (${rateLimitInfo.usagePercentage.toFixed(1)}% used)`);
+        }
+        
         // Build URL with query parameters
         const baseUrl = this.config.enhancedApiUrl.replace(/\/$/, ''); // Remove trailing slash if present
         const url = new URL(`${baseUrl}/addresses/${publicKey.toString()}/transactions`);
@@ -410,6 +424,14 @@ export class HeliusClient {
      * @returns Array of all Transaction objects
      */
     public async getAllTransactions(publicKey: PublicKey, options: GetTransactionsOptions = {}): Promise<Transaction[]> {
+        // Log initial rate limit status
+        const initialRateLimit = this.getRateLimitInfo();
+        this.logger?.info(`Starting getAllTransactions: fetching all transactions in batches of ${options.limit || 100}`, {
+            publicKey: publicKey.toString(),
+            batchLimit: options.limit || 100,
+            initialRateLimit
+        });
+        
         const allTransactions: Transaction[] = [];
         const batchLimit = options.limit || 100; // Default batch size
 
@@ -430,6 +452,12 @@ export class HeliusClient {
                 delete batchOptions.until;
             }
             // For the first batch, keep the original 'before' or 'until' parameter
+
+            // Check rate limit before each batch
+            const batchRateLimit = this.getRateLimitInfo();
+            if (batchRateLimit.remaining >= 0 && batchRateLimit.remaining < 5) {
+                this.logger?.warn(`Very low rate limit before getAllTransactions batch: ${batchRateLimit.remaining}/${batchRateLimit.limit} remaining`);
+            }
 
             const transactions = await this.getTransactions(publicKey, batchOptions);
 
@@ -475,7 +503,12 @@ export class HeliusClient {
             }
         }
 
-        this.logger?.info(`Finished fetching all transactions. Total: ${allTransactions.length}`);
+        // Log final rate limit status
+        const finalRateLimit = this.getRateLimitInfo();
+        this.logger?.info(`Finished fetching all transactions. Total: ${allTransactions.length}`, {
+            finalRateLimit,
+            totalTransactions: allTransactions.length
+        });
         return allTransactions;
     }
 
@@ -491,6 +524,15 @@ export class HeliusClient {
         if (batchSize <= 0 || batchSize > 100) {
             throw new Error('Batch size must be between 1 and 100');
         }
+        
+        // Log initial rate limit status
+        const initialRateLimit = this.getRateLimitInfo();
+        this.logger?.info(`Starting getTransactionsWithLimit: requesting ${totalLimit} transactions in batches of ${batchSize}`, {
+            publicKey: publicKey.toString(),
+            totalLimit,
+            batchSize,
+            initialRateLimit
+        });
         
         const transactions: Transaction[] = [];
         let batchCount = 0;
@@ -521,6 +563,12 @@ export class HeliusClient {
             // For the first batch, keep the original 'before' or 'until' parameter
 
             this.logger?.debug(`Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
+
+            // Check rate limit before each batch
+            const batchRateLimit = this.getRateLimitInfo();
+            if (batchRateLimit.remaining >= 0 && batchRateLimit.remaining < 5) {
+                this.logger?.warn(`Very low rate limit before batch ${batchCount}: ${batchRateLimit.remaining}/${batchRateLimit.limit} remaining`);
+            }
 
             const batchTransactions = await this.getTransactions(publicKey, batchOptions);
 
@@ -588,7 +636,13 @@ export class HeliusClient {
             }
         }
 
-        this.logger?.info(`Finished fetching transactions with limit. Total: ${transactions.length}/${totalLimit} in ${batchCount} batches`);
+        // Log final rate limit status
+        const finalRateLimit = this.getRateLimitInfo();
+        this.logger?.info(`Finished fetching transactions with limit. Total: ${transactions.length}/${totalLimit} in ${batchCount} batches`, {
+            finalRateLimit,
+            batchesProcessed: batchCount,
+            successRate: `${((transactions.length / totalLimit) * 100).toFixed(1)}%`
+        });
         
         // Log a warning if we didn't reach the requested limit
         if (transactions.length < totalLimit) {
@@ -612,6 +666,15 @@ export class HeliusClient {
         if (batchSize <= 0 || batchSize > 100) {
             throw new Error('Batch size must be between 1 and 100');
         }
+        
+        // Log initial rate limit status
+        const initialRateLimit = this.getRateLimitInfo();
+        this.logger?.info(`Starting getTransactionsWithLimitRobust: requesting ${totalLimit} transactions in batches of ${batchSize}`, {
+            publicKey: publicKey.toString(),
+            totalLimit,
+            batchSize,
+            initialRateLimit
+        });
         
         const transactions: Transaction[] = [];
         let batchCount = 0;
@@ -637,6 +700,12 @@ export class HeliusClient {
             }
 
             this.logger?.debug(`Robust Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
+
+            // Check rate limit before each batch
+            const batchRateLimit = this.getRateLimitInfo();
+            if (batchRateLimit.remaining >= 0 && batchRateLimit.remaining < 5) {
+                this.logger?.warn(`Very low rate limit before robust batch ${batchCount}: ${batchRateLimit.remaining}/${batchRateLimit.limit} remaining`);
+            }
 
             try {
                 const batchTransactions = await this.getTransactions(publicKey, batchOptions);
@@ -720,7 +789,14 @@ export class HeliusClient {
             }
         }
 
-        this.logger?.info(`Finished robust transaction fetching. Total: ${transactions.length}/${totalLimit} in ${batchCount} batches`);
+        // Log final rate limit status
+        const finalRateLimit = this.getRateLimitInfo();
+        this.logger?.info(`Finished robust transaction fetching. Total: ${transactions.length}/${totalLimit} in ${batchCount} batches`, {
+            finalRateLimit,
+            batchesProcessed: batchCount,
+            retriesUsed: retryCount,
+            successRate: `${((transactions.length / totalLimit) * 100).toFixed(1)}%`
+        });
         
         if (transactions.length < totalLimit) {
             this.logger?.warn(`Only retrieved ${transactions.length} transactions out of ${totalLimit} requested using robust method.`);
@@ -1219,6 +1295,92 @@ export class HeliusClient {
     }
 
     /**
+     * Extract and log rate limit information from response headers
+     * @param response - The fetch response
+     * @param requestId - The request ID for logging
+     * @private
+     */
+    private extractAndLogRateLimitInfo(response: Response, requestId: number): void {
+        const now = Date.now();
+        
+        // Extract rate limit headers (Helius uses standard rate limit headers)
+        const remaining = response.headers.get('x-ratelimit-remaining');
+        const limit = response.headers.get('x-ratelimit-limit');
+        const reset = response.headers.get('x-ratelimit-reset');
+        
+        // Update rate limit info
+        if (remaining !== null) {
+            this.rateLimitInfo.remaining = parseInt(remaining, 10);
+        }
+        if (limit !== null) {
+            this.rateLimitInfo.limit = parseInt(limit, 10);
+        }
+        if (reset !== null) {
+            this.rateLimitInfo.reset = parseInt(reset, 10) * 1000; // Convert to milliseconds
+        }
+        this.rateLimitInfo.lastUpdate = now;
+        
+        // Log rate limit information
+        if (this.rateLimitInfo.remaining >= 0 && this.rateLimitInfo.limit >= 0) {
+            const usagePercentage = ((this.rateLimitInfo.limit - this.rateLimitInfo.remaining) / this.rateLimitInfo.limit) * 100;
+            
+            if (usagePercentage >= 90) {
+                this.logger?.warn(`Rate limit warning - Request ${requestId}: ${this.rateLimitInfo.remaining}/${this.rateLimitInfo.limit} remaining (${usagePercentage.toFixed(1)}% used)`);
+            } else if (usagePercentage >= 75) {
+                this.logger?.info(`Rate limit info - Request ${requestId}: ${this.rateLimitInfo.remaining}/${this.rateLimitInfo.limit} remaining (${usagePercentage.toFixed(1)}% used)`);
+            } else {
+                this.logger?.debug(`Rate limit info - Request ${requestId}: ${this.rateLimitInfo.remaining}/${this.rateLimitInfo.limit} remaining (${usagePercentage.toFixed(1)}% used)`);
+            }
+            
+            // Log reset time if available
+            if (this.rateLimitInfo.reset > 0) {
+                const resetDate = new Date(this.rateLimitInfo.reset);
+                const timeUntilReset = this.rateLimitInfo.reset - now;
+                
+                if (timeUntilReset > 0) {
+                    const minutesUntilReset = Math.ceil(timeUntilReset / (1000 * 60));
+                    this.logger?.debug(`Rate limit resets in ${minutesUntilReset} minutes at ${resetDate.toISOString()}`);
+                }
+            }
+        }
+        
+        // Log all rate limit headers for debugging
+        this.logger?.debug(`Rate limit headers for request ${requestId}:`, {
+            'x-ratelimit-remaining': remaining,
+            'x-ratelimit-limit': limit,
+            'x-ratelimit-reset': reset,
+            'retry-after': response.headers.get('retry-after')
+        });
+    }
+
+    /**
+     * Get current rate limit information
+     * @returns Current rate limit status
+     */
+    public getRateLimitInfo(): {
+        remaining: number;
+        limit: number;
+        reset: number;
+        lastUpdate: number;
+        usagePercentage: number;
+        timeUntilReset?: number;
+    } {
+        const usagePercentage = this.rateLimitInfo.limit > 0 
+            ? ((this.rateLimitInfo.limit - this.rateLimitInfo.remaining) / this.rateLimitInfo.limit) * 100 
+            : 0;
+        
+        const timeUntilReset = this.rateLimitInfo.reset > 0 
+            ? Math.max(0, this.rateLimitInfo.reset - Date.now())
+            : undefined;
+        
+        return {
+            ...this.rateLimitInfo,
+            usagePercentage,
+            timeUntilReset
+        };
+    }
+
+    /**
      * Utility method for delays
      * @param ms - Milliseconds to delay
      */
@@ -1270,8 +1432,25 @@ export class HeliusClient {
                 }
 
                 if (!response.ok) {
+                    // Check if this is a rate limit error
+                    if (response.status === 429) {
+                        const retryAfter = response.headers.get('retry-after');
+                        const rateLimitInfo = this.getRateLimitInfo();
+                        
+                        this.logger?.error(`Rate limit exceeded - Request ${requestId}: HTTP 429 Too Many Requests`, {
+                            retryAfter,
+                            rateLimitInfo,
+                            url: url.split('?')[0] // Log URL without API key
+                        });
+                        
+                        throw new Error(`Rate limit exceeded. Retry after: ${retryAfter || 'unknown'} seconds`);
+                    }
+                    
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
+
+                // Extract and log rate limit information
+                this.extractAndLogRateLimitInfo(response, requestId);
 
                 const data = await response.json();
                 this.logger?.debug(`REST Response ${requestId}:`, data);
@@ -1341,8 +1520,25 @@ export class HeliusClient {
                 }
 
                 if (!response.ok) {
+                    // Check if this is a rate limit error
+                    if (response.status === 429) {
+                        const retryAfter = response.headers.get('retry-after');
+                        const rateLimitInfo = this.getRateLimitInfo();
+                        
+                        this.logger?.error(`Rate limit exceeded - POST Request ${requestId}: HTTP 429 Too Many Requests`, {
+                            retryAfter,
+                            rateLimitInfo,
+                            url: url.split('?')[0] // Log URL without API key
+                        });
+                        
+                        throw new Error(`Rate limit exceeded. Retry after: ${retryAfter || 'unknown'} seconds`);
+                    }
+                    
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
+
+                // Extract and log rate limit information
+                this.extractAndLogRateLimitInfo(response, requestId);
 
                 const data = await response.json();
                 this.logger?.debug(`REST POST Response ${requestId}:`, data);

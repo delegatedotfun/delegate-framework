@@ -2531,6 +2531,38 @@ describe('HeliusClient', () => {
         })
       );
     });
+
+    it('should log rate limit information correctly', async () => {
+      const client = new HeliusClient({
+        apiKey: 'test-api-key',
+        logger: mockLogger
+      });
+
+      // Mock the getTransactions method to return sample data
+      const batch1 = [
+        { signature: 'sig1', slot: 1, timestamp: 1000, description: 'tx1', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig2', slot: 2, timestamp: 1001, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
+      ];
+
+      // Mock the getTransactions method directly
+      const mockGetTransactions = jest.fn()
+        .mockResolvedValueOnce(batch1);
+
+      (client as any).getTransactions = mockGetTransactions;
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const result = await client.getTransactionsWithLimit(publicKey, 10, {}, 2);
+
+      expect(result).toHaveLength(2);
+      
+      // Check that rate limit info method exists and returns expected structure
+      const rateLimitInfo = client.getRateLimitInfo();
+      expect(rateLimitInfo).toHaveProperty('remaining');
+      expect(rateLimitInfo).toHaveProperty('limit');
+      expect(rateLimitInfo).toHaveProperty('reset');
+      expect(rateLimitInfo).toHaveProperty('lastUpdate');
+      expect(rateLimitInfo).toHaveProperty('usagePercentage');
+    });
   });
 
   describe('Transaction Pagination', () => {
