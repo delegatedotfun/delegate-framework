@@ -1032,11 +1032,12 @@ describe('HeliusClient', () => {
           body: JSON.stringify({
             jsonrpc: '2.0',
             id: 1,
-            method: 'getTokenAccounts',
-            params: [{
-              mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-              owner: '11111111111111111111111111111111',
-            }],
+            method: 'getTokenAccountsByOwner',
+            params: [
+              '11111111111111111111111111111111',
+              { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
+              { encoding: 'base64' }
+            ],
           }),
         })
       );
@@ -1057,7 +1058,7 @@ describe('HeliusClient', () => {
       const owner = new PublicKey('11111111111111111111111111111111');
       const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
-      await expect(client.getTokenAccount(owner, mint)).rejects.toThrow('Helius API Error (getTokenAccounts)');
+      await expect(client.getTokenAccount(owner, mint)).rejects.toThrow('Helius API Error (getTokenAccountsByOwner)');
     });
 
     it('should handle network errors for token account', async () => {
@@ -1066,7 +1067,7 @@ describe('HeliusClient', () => {
       const owner = new PublicKey('11111111111111111111111111111111');
       const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
-      await expect(client.getTokenAccount(owner, mint)).rejects.toThrow('Helius API Request Failed (getTokenAccounts)');
+      await expect(client.getTokenAccount(owner, mint)).rejects.toThrow('Helius API Request Failed (getTokenAccountsByOwner)');
     });
 
     it('should retry on token account failure', async () => {
@@ -1139,10 +1140,12 @@ describe('HeliusClient', () => {
           body: JSON.stringify({
             jsonrpc: '2.0',
             id: 1,
-            method: 'getTokenAccounts',
-            params: [{
-              owner: '11111111111111111111111111111111',
-            }],
+            method: 'getTokenAccountsByOwner',
+            params: [
+              '11111111111111111111111111111111',
+              { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+              { encoding: 'base64' }
+            ],
           }),
         })
       );
@@ -1181,7 +1184,7 @@ describe('HeliusClient', () => {
 
       const owner = new PublicKey('11111111111111111111111111111111');
 
-      await expect(client.getTokenAccounts(owner)).rejects.toThrow('Helius API Error (getTokenAccounts)');
+      await expect(client.getTokenAccounts(owner)).rejects.toThrow('Helius API Error (getTokenAccountsByOwner)');
     });
   });
 
@@ -2527,6 +2530,95 @@ describe('HeliusClient', () => {
           headers: { 'Content-Type': 'application/json' }
         })
       );
+    });
+  });
+
+  describe('Transaction Pagination', () => {
+    it('should handle pagination gaps correctly', async () => {
+      const client = new HeliusClient({
+        apiKey: 'test-api-key',
+        logger: mockLogger
+      });
+
+      // Mock the getTransactions method to simulate pagination with gaps
+      const batch1 = [
+        { signature: 'sig1', slot: 1, timestamp: 1000, description: 'tx1', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig2', slot: 2, timestamp: 1001, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
+      ];
+      
+      const batch2 = [
+        { signature: 'sig5', slot: 5, timestamp: 1004, description: 'tx5', nativeTransfers: [], tokenTransfers: [] }, // Note: sig3, sig4 are missing
+        { signature: 'sig6', slot: 6, timestamp: 1005, description: 'tx6', nativeTransfers: [], tokenTransfers: [] },
+      ];
+
+      // Mock the makeRestRequest method to return different batches
+      const mockMakeRestRequest = jest.fn()
+        .mockResolvedValueOnce(batch1)
+        .mockResolvedValueOnce(batch2);
+
+      (client as any).makeRestRequest = mockMakeRestRequest;
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const result = await client.getTransactionsWithLimit(publicKey, 10, {}, 2);
+
+      expect(result).toHaveLength(4);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Potential gap detected between batches')
+      );
+    });
+
+    it('should use robust pagination method when gaps are detected', async () => {
+      const client = new HeliusClient({
+        apiKey: 'test-api-key',
+        logger: mockLogger
+      });
+
+      // Mock the getTransactions method to simulate pagination with gaps
+      const batch1 = [
+        { signature: 'sig1', slot: 1, timestamp: 1000, description: 'tx1', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig2', slot: 2, timestamp: 1001, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
+      ];
+
+      // Mock the makeRestRequest method to return different batches
+      const mockMakeRestRequest = jest.fn()
+        .mockResolvedValueOnce(batch1);
+
+      (client as any).makeRestRequest = mockMakeRestRequest;
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const result = await client.getTransactionsWithLimitRobust(publicKey, 10, {}, 2);
+
+      expect(result).toHaveLength(2);
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Robust Batch')
+      );
+    });
+
+    it('should analyze pagination behavior correctly', async () => {
+      const client = new HeliusClient({
+        apiKey: 'test-api-key',
+        logger: mockLogger
+      });
+
+      // Mock the getTransactions method to simulate pagination with gaps
+      const batch1 = [
+        { signature: 'sig1', slot: 1, timestamp: 1000, description: 'tx1', nativeTransfers: [], tokenTransfers: [] },
+        { signature: 'sig2', slot: 2, timestamp: 1001, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
+      ];
+
+      // Mock the makeRestRequest method to return different batches
+      const mockMakeRestRequest = jest.fn()
+        .mockResolvedValueOnce(batch1);
+
+      (client as any).makeRestRequest = mockMakeRestRequest;
+
+      const publicKey = new PublicKey('11111111111111111111111111111111');
+      const analysis = await client.analyzeTransactionPagination(publicKey, 10, 2);
+
+      expect(analysis.totalTransactions).toBe(2);
+      expect(analysis.batches).toBe(2);
+      expect(analysis.gaps).toHaveLength(0);
+      expect(analysis.recommendations).toBeDefined();
     });
   });
 });

@@ -374,6 +374,7 @@ export class HeliusClient {
 
         // For backward pagination, we track the oldest signature for next batch
         let paginationSignature: string | null = null;
+        let isFirstBatch = true;
 
         while (true) {
             const batchOptions: GetTransactionsOptions = {
@@ -393,16 +394,38 @@ export class HeliusClient {
 
             if (transactions && transactions.length > 0) {
                 this.logger?.debug(`Fetched batch of ${transactions.length} transactions`);
+                
+                // For subsequent batches, we need to handle potential overlap
+                // The 'before' parameter is exclusive, so we might have gaps
+                if (!isFirstBatch && allTransactions.length > 0) {
+                    const lastPreviousTransaction = allTransactions[allTransactions.length - 1];
+                    const firstCurrentTransaction = transactions[0];
+                    
+                    if (lastPreviousTransaction && firstCurrentTransaction) {
+                        const lastPreviousSignature = lastPreviousTransaction.signature;
+                        const firstCurrentSignature = firstCurrentTransaction.signature;
+                        
+                        // Check if there's a gap between batches
+                        if (lastPreviousSignature !== firstCurrentSignature) {
+                            this.logger?.warn(`Potential gap detected between batches. Last previous: ${lastPreviousSignature}, First current: ${firstCurrentSignature}`);
+                        }
+                    }
+                }
+                
                 allTransactions.push(...transactions);
+                isFirstBatch = false;
                 
                 // Update pagination signature for backward pagination
+                // Use the oldest transaction signature for the next 'before' parameter
                 const lastTransaction = transactions[transactions.length - 1];
                 if (lastTransaction) {
                     paginationSignature = lastTransaction.signature;
+                    this.logger?.debug(`Next pagination signature: ${paginationSignature}`);
                 }
                 
                 // If we got fewer transactions than requested, we've reached the end
                 if (transactions.length < batchLimit) {
+                    this.logger?.debug(`Reached end of transactions (got ${transactions.length} < ${batchLimit})`);
                     break;
                 }
             } else {
@@ -430,9 +453,13 @@ export class HeliusClient {
         
         const transactions: Transaction[] = [];
         let batchCount = 0;
+        let consecutiveEmptyBatches = 0;
+        const maxConsecutiveEmptyBatches = 3; // Stop after 3 consecutive empty batches
 
         // For backward pagination, we track the oldest signature for next batch
         let paginationSignature: string | null = null;
+        let isFirstBatch = true;
+        let lastBatchSize = 0;
 
         while (transactions.length < totalLimit) {
             batchCount++;
@@ -452,27 +479,357 @@ export class HeliusClient {
             }
             // For the first batch, keep the original 'before' or 'until' parameter
 
+            this.logger?.debug(`Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
+
             const batchTransactions = await this.getTransactions(publicKey, batchOptions);
 
             if (batchTransactions && batchTransactions.length > 0) {
+                // Reset consecutive empty batches counter
+                consecutiveEmptyBatches = 0;
+                
+                // For subsequent batches, we need to handle potential overlap
+                // The 'before' parameter is exclusive, so we might have gaps
+                if (!isFirstBatch && transactions.length > 0) {
+                    const lastPreviousTransaction = transactions[transactions.length - 1];
+                    const firstCurrentTransaction = batchTransactions[0];
+                    
+                    if (lastPreviousTransaction && firstCurrentTransaction) {
+                        const lastPreviousSignature = lastPreviousTransaction.signature;
+                        const firstCurrentSignature = firstCurrentTransaction.signature;
+                        
+                        // Check if there's a gap between batches
+                        if (lastPreviousSignature !== firstCurrentSignature) {
+                            this.logger?.warn(`Potential gap detected between batches. Last previous: ${lastPreviousSignature}, First current: ${firstCurrentSignature}`);
+                            
+                            // If we detect a gap, we might need to adjust our pagination strategy
+                            // For now, we'll continue but log the issue
+                        }
+                    }
+                }
+                
                 transactions.push(...batchTransactions);
+                isFirstBatch = false;
+                lastBatchSize = batchTransactions.length;
+                
+                this.logger?.debug(`Batch ${batchCount}: Received ${batchTransactions.length} transactions. Total so far: ${transactions.length}`);
                 
                 // Update pagination signature for backward pagination
+                // Use the oldest transaction signature for the next 'before' parameter
                 const lastTransaction = batchTransactions[batchTransactions.length - 1];
                 if (lastTransaction) {
                     paginationSignature = lastTransaction.signature;
+                    this.logger?.debug(`Batch ${batchCount}: Next pagination signature: ${paginationSignature}`);
                 }
                 
                 // If we got fewer transactions than requested, we've reached the end
                 if (batchTransactions.length < currentBatchLimit) {
+                    this.logger?.debug(`Batch ${batchCount}: Reached end of transactions (got ${batchTransactions.length} < ${currentBatchLimit})`);
                     break;
                 }
             } else {
+                consecutiveEmptyBatches++;
+                this.logger?.warn(`Batch ${batchCount}: No transactions found. Consecutive empty batches: ${consecutiveEmptyBatches}`);
+                
+                // If we've had multiple consecutive empty batches, we might be at the end
+                // or there might be an issue with our pagination
+                if (consecutiveEmptyBatches >= maxConsecutiveEmptyBatches) {
+                    this.logger?.warn(`Stopping after ${maxConsecutiveEmptyBatches} consecutive empty batches`);
+                    break;
+                }
+                
+                // If this is not the first batch and we got an empty response,
+                // we might need to try a different pagination strategy
+                if (!isFirstBatch && lastBatchSize > 0) {
+                    this.logger?.warn(`Empty batch after receiving ${lastBatchSize} transactions in previous batch. This might indicate a pagination issue.`);
+                }
+                
                 break;
             }
         }
 
+        this.logger?.info(`Finished fetching transactions with limit. Total: ${transactions.length}/${totalLimit} in ${batchCount} batches`);
+        
+        // Log a warning if we didn't reach the requested limit
+        if (transactions.length < totalLimit) {
+            this.logger?.warn(`Only retrieved ${transactions.length} transactions out of ${totalLimit} requested. This might indicate missing transactions due to pagination gaps.`);
+        }
+        
         return transactions;
+    }
+
+    /**
+     * Get transactions with limit using a more robust pagination strategy
+     * This method attempts to handle potential gaps in transaction history by using
+     * a combination of 'before' and 'until' parameters and retry logic
+     * @param publicKey - The public key to get transactions for
+     * @param totalLimit - Total number of transactions to fetch
+     * @param options - Optional configuration for transaction retrieval
+     * @param batchSize - Number of transactions to fetch per API call (default: 50, max: 100)
+     * @returns Array of Transaction objects up to the specified limit
+     */
+    public async getTransactionsWithLimitRobust(publicKey: PublicKey, totalLimit: number, options: GetTransactionsOptions = {}, batchSize: number = 50): Promise<Transaction[]> {
+        if (batchSize <= 0 || batchSize > 100) {
+            throw new Error('Batch size must be between 1 and 100');
+        }
+        
+        const transactions: Transaction[] = [];
+        let batchCount = 0;
+        let paginationSignature: string | null = null;
+        let retryCount = 0;
+        const maxRetries = 3;
+
+        while (transactions.length < totalLimit && retryCount < maxRetries) {
+            batchCount++;
+            const remainingLimit = totalLimit - transactions.length;
+            const currentBatchLimit = Math.min(batchSize, remainingLimit);
+            
+            const batchOptions: GetTransactionsOptions = {
+                ...options,
+                limit: currentBatchLimit
+            };
+
+            // Handle backward pagination
+            if (paginationSignature) {
+                batchOptions.before = paginationSignature;
+                // Remove the original until parameter for subsequent batches
+                delete batchOptions.until;
+            }
+
+            this.logger?.debug(`Robust Batch ${batchCount}: Requesting ${currentBatchLimit} transactions${paginationSignature ? ` before ${paginationSignature}` : ''}`);
+
+            try {
+                const batchTransactions = await this.getTransactions(publicKey, batchOptions);
+
+                if (batchTransactions && batchTransactions.length > 0) {
+                    // Check for potential gaps
+                    if (transactions.length > 0 && batchTransactions.length > 0) {
+                        const lastPreviousTransaction = transactions[transactions.length - 1];
+                        const firstCurrentTransaction = batchTransactions[0];
+                        
+                        if (lastPreviousTransaction && firstCurrentTransaction) {
+                            const lastPreviousSignature = lastPreviousTransaction.signature;
+                            const firstCurrentSignature = firstCurrentTransaction.signature;
+                            
+                            if (lastPreviousSignature !== firstCurrentSignature) {
+                                this.logger?.warn(`Gap detected in robust method. Last previous: ${lastPreviousSignature}, First current: ${firstCurrentSignature}`);
+                                
+                                // Try to fill the gap by requesting transactions between these signatures
+                                try {
+                                    const gapOptions: GetTransactionsOptions = {
+                                        ...options,
+                                        limit: Math.min(100, totalLimit - transactions.length),
+                                        before: lastPreviousSignature,
+                                        until: firstCurrentSignature
+                                    };
+                                    
+                                    this.logger?.debug(`Attempting to fill gap with until parameter: ${firstCurrentSignature}`);
+                                    const gapTransactions = await this.getTransactions(publicKey, gapOptions);
+                                    
+                                    if (gapTransactions && gapTransactions.length > 0) {
+                                        this.logger?.info(`Successfully filled gap with ${gapTransactions.length} transactions`);
+                                        transactions.push(...gapTransactions);
+                                    }
+                                } catch (gapError) {
+                                    this.logger?.warn('Failed to fill gap:', gapError);
+                                }
+                            }
+                        }
+                    }
+                    
+                    transactions.push(...batchTransactions);
+                    retryCount = 0; // Reset retry count on successful batch
+                    
+                    this.logger?.debug(`Robust Batch ${batchCount}: Received ${batchTransactions.length} transactions. Total so far: ${transactions.length}`);
+                    
+                    // Update pagination signature for backward pagination
+                    const lastTransaction = batchTransactions[batchTransactions.length - 1];
+                    if (lastTransaction) {
+                        paginationSignature = lastTransaction.signature;
+                        this.logger?.debug(`Robust Batch ${batchCount}: Next pagination signature: ${paginationSignature}`);
+                    }
+                    
+                    // If we got fewer transactions than requested, we've reached the end
+                    if (batchTransactions.length < currentBatchLimit) {
+                        this.logger?.debug(`Robust Batch ${batchCount}: Reached end of transactions (got ${batchTransactions.length} < ${currentBatchLimit})`);
+                        break;
+                    }
+                } else {
+                    retryCount++;
+                    this.logger?.warn(`Robust Batch ${batchCount}: No transactions found. Retry ${retryCount}/${maxRetries}`);
+                    
+                    if (retryCount >= maxRetries) {
+                        this.logger?.warn(`Stopping after ${maxRetries} consecutive empty batches`);
+                        break;
+                    }
+                    
+                    // Wait before retrying
+                    await this.delay(Math.pow(2, retryCount) * 1000);
+                }
+            } catch (error) {
+                retryCount++;
+                this.logger?.error(`Robust Batch ${batchCount} failed:`, error);
+                
+                if (retryCount >= maxRetries) {
+                    this.logger?.error(`Stopping after ${maxRetries} consecutive failures`);
+                    break;
+                }
+                
+                // Wait before retrying
+                await this.delay(Math.pow(2, retryCount) * 1000);
+            }
+        }
+
+        this.logger?.info(`Finished robust transaction fetching. Total: ${transactions.length}/${totalLimit} in ${batchCount} batches`);
+        
+        if (transactions.length < totalLimit) {
+            this.logger?.warn(`Only retrieved ${transactions.length} transactions out of ${totalLimit} requested using robust method.`);
+        }
+        
+        return transactions;
+    }
+
+    /**
+     * Diagnostic method to analyze transaction pagination behavior
+     * This method helps identify gaps and understand the pagination patterns
+     * @param publicKey - The public key to analyze
+     * @param sampleSize - Number of transactions to analyze (default: 1000)
+     * @param batchSize - Batch size for analysis (default: 100)
+     * @returns Analysis results including gap detection and pagination statistics
+     */
+    public async analyzeTransactionPagination(publicKey: PublicKey, sampleSize: number = 1000, batchSize: number = 100): Promise<{
+        totalTransactions: number;
+        batches: number;
+        gaps: Array<{ before: string; after: string; estimatedGapSize: number }>;
+        averageBatchSize: number;
+        paginationIssues: string[];
+        recommendations: string[];
+    }> {
+        this.logger?.info(`Starting pagination analysis for ${publicKey.toString()}`);
+        
+        const transactions: Transaction[] = [];
+        let batchCount = 0;
+        let paginationSignature: string | null = null;
+        const gaps: Array<{ before: string; after: string; estimatedGapSize: number }> = [];
+        const paginationIssues: string[] = [];
+        const recommendations: string[] = [];
+
+        while (transactions.length < sampleSize) {
+            batchCount++;
+            const remainingLimit = sampleSize - transactions.length;
+            const currentBatchLimit = Math.min(batchSize, remainingLimit);
+            
+            const batchOptions: GetTransactionsOptions = {
+                limit: currentBatchLimit
+            };
+
+            if (paginationSignature) {
+                batchOptions.before = paginationSignature;
+            }
+
+            this.logger?.debug(`Analysis Batch ${batchCount}: Requesting ${currentBatchLimit} transactions`);
+
+            try {
+                const batchTransactions = await this.getTransactions(publicKey, batchOptions);
+
+                if (batchTransactions && batchTransactions.length > 0) {
+                    // Check for gaps between batches
+                    if (transactions.length > 0 && batchTransactions.length > 0) {
+                        const lastPreviousTransaction = transactions[transactions.length - 1];
+                        const firstCurrentTransaction = batchTransactions[0];
+                        
+                        if (lastPreviousTransaction && firstCurrentTransaction) {
+                            const lastPreviousSignature = lastPreviousTransaction.signature;
+                            const firstCurrentSignature = firstCurrentTransaction.signature;
+                            
+                            if (lastPreviousSignature !== firstCurrentSignature) {
+                                gaps.push({
+                                    before: lastPreviousSignature,
+                                    after: firstCurrentSignature,
+                                    estimatedGapSize: 0 // Will be calculated if we can fetch gap transactions
+                                });
+                                
+                                paginationIssues.push(`Gap detected between batches ${batchCount - 1} and ${batchCount}`);
+                                
+                                // Try to estimate gap size
+                                try {
+                                    const gapOptions: GetTransactionsOptions = {
+                                        limit: 100,
+                                        before: lastPreviousSignature,
+                                        until: firstCurrentSignature
+                                    };
+                                    
+                                    const gapTransactions = await this.getTransactions(publicKey, gapOptions);
+                                    if (gapTransactions && gapTransactions.length > 0) {
+                                        const lastGap = gaps[gaps.length - 1];
+                                        if (lastGap) {
+                                            lastGap.estimatedGapSize = gapTransactions.length;
+                                            this.logger?.info(`Gap contains approximately ${gapTransactions.length} transactions`);
+                                        }
+                                    }
+                                } catch (gapError) {
+                                    this.logger?.warn('Could not estimate gap size:', gapError);
+                                }
+                            }
+                        }
+                    }
+                    
+                    transactions.push(...batchTransactions);
+                    
+                    this.logger?.debug(`Analysis Batch ${batchCount}: Received ${batchTransactions.length} transactions. Total so far: ${transactions.length}`);
+                    
+                    // Update pagination signature
+                    const lastTransaction = batchTransactions[batchTransactions.length - 1];
+                    if (lastTransaction && lastTransaction.signature) {
+                        paginationSignature = lastTransaction.signature;
+                    }
+                    
+                    // If we got fewer transactions than requested, we've reached the end
+                    if (batchTransactions.length < currentBatchLimit) {
+                        this.logger?.debug(`Analysis: Reached end of transactions (got ${batchTransactions.length} < ${currentBatchLimit})`);
+                        break;
+                    }
+                } else {
+                    this.logger?.warn(`Analysis Batch ${batchCount}: No transactions found`);
+                    paginationIssues.push(`Empty batch at batch ${batchCount}`);
+                    break;
+                }
+            } catch (error) {
+                this.logger?.error(`Analysis Batch ${batchCount} failed:`, error);
+                paginationIssues.push(`Batch ${batchCount} failed: ${error instanceof Error ? error.message : String(error)}`);
+                break;
+            }
+        }
+
+        const averageBatchSize = batchCount > 0 ? transactions.length / batchCount : 0;
+        
+        // Generate recommendations based on analysis
+        if (gaps.length > 0) {
+            recommendations.push(`Found ${gaps.length} gaps in transaction history. Consider using getTransactionsWithLimitRobust() method.`);
+        }
+        
+        if (averageBatchSize < batchSize * 0.8) {
+            recommendations.push(`Average batch size (${averageBatchSize.toFixed(1)}) is significantly lower than requested (${batchSize}). Consider reducing batch size.`);
+        }
+        
+        if (paginationIssues.length > 0) {
+            recommendations.push(`Encountered ${paginationIssues.length} pagination issues. Review logs for details.`);
+        }
+        
+        if (transactions.length < sampleSize) {
+            recommendations.push(`Only retrieved ${transactions.length} transactions out of ${sampleSize} requested. This may indicate limited transaction history.`);
+        }
+
+        const analysis = {
+            totalTransactions: transactions.length,
+            batches: batchCount,
+            gaps,
+            averageBatchSize,
+            paginationIssues,
+            recommendations
+        };
+
+        this.logger?.info('Pagination analysis completed:', analysis);
+        return analysis;
     }
 
     /**
