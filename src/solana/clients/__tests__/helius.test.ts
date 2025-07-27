@@ -2551,12 +2551,12 @@ describe('HeliusClient', () => {
         { signature: 'sig6', slot: 6, timestamp: 1005, description: 'tx6', nativeTransfers: [], tokenTransfers: [] },
       ];
 
-      // Mock the makeRestRequest method to return different batches
-      const mockMakeRestRequest = jest.fn()
+      // Mock the getTransactions method directly
+      const mockGetTransactions = jest.fn()
         .mockResolvedValueOnce(batch1)
         .mockResolvedValueOnce(batch2);
 
-      (client as any).makeRestRequest = mockMakeRestRequest;
+      (client as any).getTransactions = mockGetTransactions;
 
       const publicKey = new PublicKey('11111111111111111111111111111111');
       const result = await client.getTransactionsWithLimit(publicKey, 10, {}, 2);
@@ -2579,11 +2579,11 @@ describe('HeliusClient', () => {
         { signature: 'sig2', slot: 2, timestamp: 1001, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
       ];
 
-      // Mock the makeRestRequest method to return different batches
-      const mockMakeRestRequest = jest.fn()
+      // Mock the getTransactions method directly
+      const mockGetTransactions = jest.fn()
         .mockResolvedValueOnce(batch1);
 
-      (client as any).makeRestRequest = mockMakeRestRequest;
+      (client as any).getTransactions = mockGetTransactions;
 
       const publicKey = new PublicKey('11111111111111111111111111111111');
       const result = await client.getTransactionsWithLimitRobust(publicKey, 10, {}, 2);
@@ -2606,11 +2606,11 @@ describe('HeliusClient', () => {
         { signature: 'sig2', slot: 2, timestamp: 1001, description: 'tx2', nativeTransfers: [], tokenTransfers: [] },
       ];
 
-      // Mock the makeRestRequest method to return different batches
-      const mockMakeRestRequest = jest.fn()
+      // Mock the getTransactions method directly
+      const mockGetTransactions = jest.fn()
         .mockResolvedValueOnce(batch1);
 
-      (client as any).makeRestRequest = mockMakeRestRequest;
+      (client as any).getTransactions = mockGetTransactions;
 
       const publicKey = new PublicKey('11111111111111111111111111111111');
       const analysis = await client.analyzeTransactionPagination(publicKey, 10, 2);

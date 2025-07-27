@@ -347,7 +347,48 @@ export class HeliusClient {
         // Validate parameter combinations
         this.validatePaginationParameters(options);
 
-        return this.makeRestRequest(url.toString());
+        const response = await this.makeRestRequest(url.toString());
+        
+        // Ensure the response is an array of Transaction objects
+        if (!Array.isArray(response)) {
+            throw new Error('Invalid response format: expected array of transactions');
+        }
+        
+        // Validate that each item has the required Transaction properties
+        const transactions: Transaction[] = response.map((item, index) => {
+            if (!item || typeof item !== 'object') {
+                throw new Error(`Invalid transaction at index ${index}: not an object`);
+            }
+            
+            if (typeof item.signature !== 'string') {
+                throw new Error(`Invalid transaction at index ${index}: missing or invalid signature`);
+            }
+            
+            if (typeof item.slot !== 'number') {
+                throw new Error(`Invalid transaction at index ${index}: missing or invalid slot`);
+            }
+            
+            if (typeof item.timestamp !== 'number') {
+                throw new Error(`Invalid transaction at index ${index}: missing or invalid timestamp`);
+            }
+            
+            if (typeof item.description !== 'string') {
+                throw new Error(`Invalid transaction at index ${index}: missing or invalid description`);
+            }
+            
+            // Ensure nativeTransfers and tokenTransfers are arrays
+            if (!Array.isArray(item.nativeTransfers)) {
+                throw new Error(`Invalid transaction at index ${index}: nativeTransfers must be an array`);
+            }
+            
+            if (!Array.isArray(item.tokenTransfers)) {
+                throw new Error(`Invalid transaction at index ${index}: tokenTransfers must be an array`);
+            }
+            
+            return item as Transaction;
+        });
+        
+        return transactions;
     }
 
     /**
